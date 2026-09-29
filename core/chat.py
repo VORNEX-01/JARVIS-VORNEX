@@ -913,3 +913,43 @@ def conv_ok(win, who, task=""):
     if not cur:
         return "no conversation is open (the window is just %r)" % (win.get("name") or "")
     return "the open conversation is %r, not %r" % (cur, who)
+
+
+# ── decorative rows must NEVER be a recipient (appended last: this wins) ─────
+# MEASURED: a row literally named "Message" reached the model and was about to be
+# treated as a person ("click landed on 'Mahak', not 'Message'"). A control LABEL
+# is not a name. Known UI labels are rejected BEFORE returning a recipient, and if
+# nothing survives the filter the answer is empty (fail closed) - never a guess.
+import re as _re
+import unicodedata as _ud
+
+_DECORATIVE_LABELS = {
+    "message", "message #", "messages", "search messages", "search message",
+    "write a message", "type a message", "new message", "search",
+    "پیام", "پیام‌ها", "پیام بنویس", "پیام بنویسید", "جستجوی پیام‌ها", "جستجو",
+}
+
+
+def _clean_label(s) -> str:
+    s = str(s or "").split("\n", 1)[0]          # first line only
+    s = _ud.normalize("NFKC", s)
+    return " ".join(s.split()).strip()          # keeps ZWNJ inside tokens
+
+
+def _is_decorative(s) -> bool:
+    low = _clean_label(s).casefold().replace("…", "...")
+    if not low:
+        return True
+    if low in _DECORATIVE_LABELS:
+        return True
+    return bool(_re.match(r"^message\s*(#|\d|\.\.\.)?$", low))
+
+
+_chat_recipient_v1 = recipient
+
+
+def recipient(task, payloads=(), preset=""):
+    who = _chat_recipient_v1(task, payloads, preset=preset)
+    if who and _is_decorative(who):
+        return ""
+    return who

@@ -127,3 +127,9 @@ def header_names(win, band=0.18, right=0.5):
     except Exception:
         pass
     return out
+
+# Extend the reject set: never let a control label pass as a conversation name.
+_BAD = tuple(_BAD) + (
+    "message", "messages", "search messages", "write a message", "type a message",
+    "پیام", "پیام‌ها", "جستجوی پیام", "پیام بنویس",
+)
