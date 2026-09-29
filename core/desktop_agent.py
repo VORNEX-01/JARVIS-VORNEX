@@ -1837,3 +1837,21 @@ def _recipient(task, payloads=()):
         if len(cand) >= 2 and cand.casefold() not in _BAD_WHO:
             return cand
     return ""
+
+
+# ── a MESSAGE row is not a person: stop the false identity block ─────────────
+# MEASURED live: "click landed on 'Mahak', not 'Not seen\nMe\nخوابیدی؟…\nSent at
+# 12:01 AM' - stopping". The click was a MESSAGE bubble in the open Mahak chat;
+# the guard compared the bubble's text with the conversation title and refused.
+# Rule now: if the clicked row looks like a message (multi-line / 'Seen' /
+# 'Not seen' / 'Sent at' / 'Downloaded' / a duration), it is NOT a recipient -
+# fall back to the original rule (open chat's name must appear in the task), so
+# a wrong chat is still blocked but our own message is allowed.
+_CONV_OK_PREV = globals().get("_CONV_OK_PREV") or _conv_ok
+_MSG_ROW_MARKERS = ("\n", "sent at", "not seen", "downloaded", "downloading", "00:00")
+
+
+def _conv_ok(win, task, name=""):
+    if any(m in str(name).casefold() for m in _MSG_ROW_MARKERS):
+        return _CONV_OK_PREV(win, task, "")
+    return _CONV_OK_PREV(win, task, _row_name(name))
