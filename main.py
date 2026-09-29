@@ -2290,3 +2290,56 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# ── GoAway: a socket the server closed must RECONNECT, never kill the task ───
+# MEASURED: the live session died mid-task with
+#     websockets.exceptions.ConnectionClosedError: received 1008 (policy
+#     violation) ... failed to close the connection after receiving a GoAway
+# which surfaced from send_realtime_input inside the asyncio.TaskGroup at
+# main.py:2106 and cancelled every sibling task, losing the running job.
+# _ReconnectSignal already exists and _is_reconnect_signal already unwraps an
+# ExceptionGroup to find it - so the ONLY missing piece is turning a dead socket
+# into that signal. This does it, and never silently retries a send on a socket
+# that is gone (the request may or may not have landed - the reconnect path
+# rebuilds the session instead of pretending).
+_GOAWAY_MARKERS = ("1008", "policy violation", "goaway", "go away",
+                   "connection closed", "closed by remote",
+                   "no close frame received", "keepalive ping timeout")
+
+
+def _socket_died(exc) -> bool:
+    try:
+        import websockets.exceptions as _wx
+        if isinstance(exc, (_wx.ConnectionClosed, _wx.ConnectionClosedError,
+                            _wx.ConnectionClosedOK)):
+            return True
+    except Exception:
+        pass
+    text = (str(exc) or "").lower()
+    return any(m in text for m in _GOAWAY_MARKERS)
+
+
+def _install_goaway_guard():
+    cls = globals().get("JarvisLive")
+    if cls is None or not hasattr(cls, "_send_realtime"):
+        print("[VORNEX] goaway guard: JarvisLive._send_realtime not found - skipped")
+        return
+    original = cls._send_realtime
+
+    async def _send_realtime(self, *a, **k):
+        try:
+            return await original(self, *a, **k)
+        except Exception as e:
+            if _is_reconnect_signal(e):
+                raise
+            if _socket_died(e):
+                print("[VORNEX] socket closed by the server - reconnecting, "
+                      "the running task is kept")
+                raise _ReconnectSignal(keep_context=True) from e
+            raise
+
+    cls._send_realtime = _send_realtime
+    print("[VORNEX] goaway guard installed")
+
+
+_install_goaway_guard()

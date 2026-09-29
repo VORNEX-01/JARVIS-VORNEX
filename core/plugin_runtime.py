@@ -87,3 +87,139 @@ def names():
 def schema(name: str):
     rec = _REGISTRY.get(str(name or "").strip())
     return rec["schema"] if rec else None
+
+
+# ── self-heal: a missing third-party module is installed, then retried once ───
+# MEASURED: make_tool refused a tool with "ModuleNotFoundError: No module named
+# 'keyboard'". The tool was fine; one small library was not installed, and the
+# assistant reported that as its own failure. From now on: stdlib is never
+# touched, a KNOWN library is pip-installed (default index, then the Iran-friendly
+# mirrors) and the call is retried once. A name outside the allowlist is refused
+# with the exact command - never silently installed.
+import functools as _ft
+import importlib as _il
+import importlib.util as _ilu
+import subprocess as _sp
+import sys as _sys
+
+_MIRRORS = [
+    ("https://pypi.tuna.tsinghua.edu.cn/simple", None),
+    ("https://mirrors.aliyun.com/pypi/simple/", None),
+    ("https://mirror-pypi.runflare.com/simple", "mirror-pypi.runflare.com"),
+]
+
+# import name -> pip name, only where they differ
+_PIP_NAME = {
+    "PIL": "pillow", "cv2": "opencv-python",
+    "win32api": "pywin32", "win32con": "pywin32", "win32gui": "pywin32",
+    "win32com": "pywin32", "pythoncom": "pywin32", "pywintypes": "pywin32",
+    "bs4": "beautifulsoup4", "yaml": "pyyaml", "dotenv": "python-dotenv",
+    "socks": "pysocks", "sklearn": "scikit-learn", "pptx": "python-pptx",
+    "docx": "python-docx", "paho": "paho-mqtt",
+    "youtube_transcript_api": "youtube-transcript-api",
+    "screen_brightness_control": "screen-brightness-control",
+}
+
+# small, known libraries that are safe to pull in for a tool the user asked for.
+# Anything OUTSIDE this list is refused, not installed.
+_ALLOWED = {
+    "keyboard", "mouse", "pyperclip", "pyautogui", "pygetwindow", "pynput",
+    "psutil", "requests", "python-dotenv", "beautifulsoup4", "pillow",
+    "opencv-python", "numpy", "mss", "openpyxl", "python-docx", "python-pptx",
+    "pdfplumber", "pandas", "ddgs", "qrcode", "win10toast", "wmi", "pycaw",
+    "playwright", "send2trash", "comtypes", "pywin32", "paho-mqtt",
+    "screen-brightness-control", "youtube-transcript-api", "rich", "schedule",
+    "python-dateutil", "pytz", "websockets", "httpx", "aiohttp", "fastapi",
+    "uvicorn", "cryptography", "pyserial", "tinytuya",
+}
+
+
+def _missing_module(exc) -> str:
+    mod = (getattr(exc, "name", "") or "").split(".")[0]
+    if not mod:
+        for part in str(exc).split("'"):
+            if part and "No module named" not in part:
+                mod = part
+                break
+    return mod.strip()
+
+
+def _pip_for(mod: str) -> str:
+    return _PIP_NAME.get(mod, mod)
+
+
+def _can_import(mod: str) -> bool:
+    try:
+        return _ilu.find_spec(mod) is not None
+    except Exception:
+        return False
+
+
+def _pip_install(pkg: str) -> bool:
+    base = [_sys.executable, "-m", "pip", "install", pkg,
+            "--quiet", "--disable-pip-version-check"]
+    try:
+        if _sp.run(base, capture_output=True, timeout=300).returncode == 0:
+            return True
+    except Exception:
+        pass
+    for url, host in _MIRRORS:
+        cmd = base + ["-i", url]
+        if host:
+            cmd += ["--trusted-host", host]
+        try:
+            if _sp.run(cmd, capture_output=True, timeout=300).returncode == 0:
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _install_missing(mod: str) -> bool:
+    """True when `mod` is importable afterwards. Never installs an unknown name."""
+    if not mod or _can_import(mod):
+        return True
+    if mod in getattr(_sys, "stdlib_module_names", ()):   # stdlib: a real bug
+        return False
+    pkg = _pip_for(mod)
+    if pkg.lower() not in _ALLOWED:
+        return False
+    if not _pip_install(pkg):
+        return False
+    _il.invalidate_caches()
+    return _can_import(mod)
+
+
+def _selfheal(fn):
+    if getattr(fn, "_vornex_selfheal", False):
+        return fn
+
+    @_ft.wraps(fn)
+    def wrapper(*a, **k):
+        try:
+            return fn(*a, **k)
+        except ModuleNotFoundError as e:
+            mod = _missing_module(e)
+            if not _install_missing(mod):
+                return ("I could not add it: the tool needs the '%s' module and it "
+                        "is not installed. Install it with:  %s -m pip install %s"
+                        % (mod, _sys.executable, _pip_for(mod)))
+            try:
+                return fn(*a, **k)
+            except Exception as e2:
+                return "I installed '%s' but the tool still failed: %r" % (mod, e2)
+
+    wrapper._vornex_selfheal = True
+    return wrapper
+
+
+for _name, _obj in list(globals().items()):
+    if (_name.startswith("_") or not callable(_obj)
+            or getattr(_obj, "__module__", "") != __name__):
+        continue
+    globals()[_name] = _selfheal(_obj)
+
+try:
+    _MIRRORS.sort(key=lambda t: 0 if "runflare" in t[0] else 1)
+except NameError:
+    pass

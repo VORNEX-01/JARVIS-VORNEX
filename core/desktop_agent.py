@@ -1907,3 +1907,34 @@ def _pick_window(app, tries=6, settle=0.5):
 _REJECT_CLASSES = _REJECT_CLASSES | {
     "Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd",
 }
+
+
+# ── identity check: judge the ROW NAME, not the row's whole text ─────────────
+# MEASURED, from the live Telegram session:
+#     click landed on 'Mahak', not 'Mahak\nIn reply to VΩRNEX: @LM – brooklyn…'
+# The click was RIGHT - the app really had opened Mahak. The guard compared the
+# open conversation ("Mahak") against the raw row text, which also carries the
+# message preview, so every correct click on a row WITH a preview was rejected.
+# The engine then stopped, reported failure, and the user was told the message
+# had not been deleted. The polarity is fine (conv_ok returns "" when the
+# conversation is right and a sentence when it is wrong - measured earlier);
+# what was wrong is the INPUT.
+# The fix strips only the preview, never the name: everything after the first
+# newline, plus a trailing "In reply to ..." block. Every character the user can
+# actually see in the row name is preserved, and an ambiguous match still fails
+# closed - so the never-message-the-wrong-person guarantee is unchanged.
+def _row_name(raw) -> str:
+    s = str(raw or "").strip()
+    s = s.split("\n", 1)[0].strip()          # line 1 of a chat row = the name
+    for marker in (" In reply to ", " در پاسخ به ", "In reply to "):
+        if marker in s:
+            s = s.split(marker, 1)[0].strip()
+    return s
+
+
+_conv_ok_v1 = _conv_ok
+
+
+def _conv_ok(win, task, name):
+    """The same check as before, on the NAME part of the row, not its preview."""
+    return _conv_ok_v1(win, task, _row_name(name))

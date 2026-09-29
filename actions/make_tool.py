@@ -76,3 +76,63 @@ TOOL = {
     },
     "handler": make_tool,
 }
+
+
+# ── self-heal at the RIGHT seam: make_tool validates the plugin itself ────────
+# MEASURED: appending the heal to core/plugin_runtime.py changed nothing - the
+# ModuleNotFoundError is raised by make_tool's OWN validation (py_compile + import
+# of the generated source) BEFORE plugin_runtime is called, and make_tool returns
+# that failure as a STRING instead of raising it. So the wrapper lives here and
+# handles BOTH shapes: a raised ModuleNotFoundError, and the standard
+# "No module named 'X'" pattern inside make_tool's own error message. It installs
+# X only when X is on the allowlist shared with core.plugin_runtime, re-runs the
+# validation exactly ONCE, and otherwise returns an honest message with the exact
+# pip command - it never pretends the tool was added.
+import re as _re
+import sys as _sys
+
+_MAKE_TOOL_V1 = make_tool
+
+_MISSING_RE = _re.compile(r"No module named '?([A-Za-z_][\w.]*)'?")
+
+
+def _missing_from(text) -> str:
+    m = _MISSING_RE.search(str(text or ""))
+    return m.group(1).split(".")[0] if m else ""
+
+
+def _heal(mod: str) -> bool:
+    try:
+        from core import plugin_runtime as _RT
+        return bool(_RT._install_missing(mod))
+    except Exception:
+        return False
+
+
+def make_tool(parameters, player=None, session_memory=None, **kwargs):
+    try:
+        out = _MAKE_TOOL_V1(parameters, player=player,
+                            session_memory=session_memory, **kwargs)
+    except ModuleNotFoundError as e:
+        out = "%r" % e
+
+    mod = _missing_from(out)
+    if not mod:
+        return out
+
+    if _heal(mod):
+        try:
+            again = _MAKE_TOOL_V1(parameters, player=player,
+                                  session_memory=session_memory, **kwargs)
+        except ModuleNotFoundError as e2:
+            again = "%r" % e2
+        if not _missing_from(again):
+            return again + (" (it works now: I installed the missing '%s' module "
+                            "and the tool is live)" % mod)
+        return again
+
+    return (out + " | I could not install '%s' automatically. Install it with:  "
+            "%s -m pip install %s" % (mod, _sys.executable, mod))
+
+
+TOOL["handler"] = make_tool
