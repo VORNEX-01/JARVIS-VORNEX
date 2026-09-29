@@ -40,25 +40,8 @@ def _key(app, prefix) -> str:
     return hashlib.sha1(raw).hexdigest()[:16]
 
 
-def _load_raw():
-    try:
-        d = json.loads(_PATH.read_text(encoding="utf-8"))
-        if isinstance(d, dict) and isinstance(d.get("recipes"), list):
-            return d
-    except Exception:
-        pass
-    return {"schema": 1, "recipes": []}
 
 
-def _save_raw(d):
-    try:
-        _PATH.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(dir=str(_PATH.parent), suffix=".tmp")
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(d, f, ensure_ascii=False, indent=1)
-        os.replace(tmp, str(_PATH))
-    except Exception:
-        pass
 
 
 def split_tail(task, typed):
