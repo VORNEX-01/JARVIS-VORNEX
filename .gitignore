@@ -66,3 +66,4 @@ memory/learned_tools.json
 plugins/*.py
 !plugins/_template.py
 !plugins/__init__.py
+.jarvis/
