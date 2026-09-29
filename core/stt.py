@@ -1,5 +1,5 @@
 """
-Speech-to-Text engines for MARK XL.
+Speech-to-Text engines for VORNEX.
 
 Whisper  – offline transcription via faster-whisper (VAD-buffered)
 Vosk     – offline streaming transcription (lighter)
