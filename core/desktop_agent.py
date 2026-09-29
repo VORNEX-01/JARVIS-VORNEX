@@ -97,53 +97,6 @@ def _is_usable(win):
         return False
 
 
-def _pick_window(app, tries=6, settle=0.5):
-    """The app's REAL main window, not a short-lived dialog with the same title.
-
-    Telegram keeps invisible helper windows also titled "Telegram"; a dialog
-    that closes two seconds later looks identical to the real window by name.
-    So: use the FILTERED window list, keep the BIGGEST match, and trust a
-    handle only if it is still there on the next tick.
-    """
-    if not app:
-        return None
-    q = str(app).strip().lower()
-
-    def area(w):
-        r = w.get("rect") or (0, 0, 0, 0)
-        try:
-            return max(0, r[2] - r[0]) * max(0, r[3] - r[1])
-        except Exception:
-            return 0
-
-    last, last_hwnd = None, None
-    for _ in range(max(1, tries)):
-        try:
-            ws = wa.list_windows()
-        except Exception:
-            ws = []
-        _CONSOLE = ("ConsoleWindowClass", "CASCADIA_HOSTING_WINDOW_CLASS",
-                    "PseudoConsoleWindow")
-        hits = [w for w in ws if q in (str(w.get("name") or "") + " "
-                                        + str(w.get("exe") or "")).lower()
-                and str(w.get("cls") or "") not in _CONSOLE]
-        if hits:
-            def rank(w):
-                r = w.get("rect") or (0, 0, 0, 0)
-                try:
-                    bad = bool(w.get("minimized")) or r[0] <= -30000 or r[1] <= -30000
-                except Exception:
-                    bad = True
-                return (1 if bad else 0, -area(w))
-
-            hits.sort(key=rank)
-            best = hits[0]
-            h = best.get("hwnd")
-            if last_hwnd is not None and h == last_hwnd:
-                return best
-            last, last_hwnd = best, h
-        time.sleep(settle)
-    return last
 
 
 def _irreversible(plan, action, text, win, target=""):
@@ -769,129 +722,12 @@ def _settle(win, before_sig, rev, hard_limit=2.5):
         return True
 
 
-def _live_index(win, items, plan):
-    """The control the model chose, re-found in a FRESH tree.
-
-    Exact type+name first, then nearest by position, then a script-aware name
-    match - because the model answers from a snapshot that is seconds old and a
-    Persian name on screen and a Latin name in the task are the same person."""
-    try:
-        want = items[int(plan.get("index"))]
-    except Exception:
-        return None
-    try:
-        fresh = wa.inventory(win)
-    except Exception:
-        return None
-    same = [it for it in fresh
-            if it.get("type") == want.get("type") and it.get("name") == want.get("name")]
-    if same:
-        if len(same) == 1:
-            return same[0]
-        wl, wt = (want.get("rect") or (0, 0, 0, 0))[0], (want.get("rect") or (0, 0, 0, 0))[1]
-        same.sort(key=lambda it: abs((it.get("rect") or (0, 0, 0, 0))[0] - wl)
-                  + abs((it.get("rect") or (0, 0, 0, 0))[1] - wt))
-        return same[0]
-    nm = str(want.get("name") or "").strip()
-    if nm:
-        pool = [it for it in fresh
-                if it.get("type") == want.get("type") and str(it.get("name") or "").strip()]
-        hit = _names.best(nm, pool, key="name", floor=0.75, margin=0.0)
-        if hit is not None:
-            return hit
-    return None
 
 
-def _find_semantic(win, ctype, cname):
-    """A stored recipe locator -> the live control, or None."""
-    if not cname:
-        return None
-    try:
-        fresh = wa.inventory(win)
-    except Exception:
-        return None
-    same = [it for it in fresh if ctype and it.get("type") == ctype
-            and str(it.get("name") or "").strip()]
-    hit = _names.best(cname, same, key="name", floor=0.6, margin=0.0)
-    if hit is None:
-        pool = [it for it in fresh if str(it.get("name") or "").strip()]
-        hit = _names.best(cname, pool, key="name", floor=0.6, margin=0.0)
-    return hit
 
 
-def _run_plan(win, steps, items, record=None, player=None):
-    """Run a plan in order. Returns (what was done, stop-message or None)."""
-    did = []
-    for st in steps[:5]:
-        if not isinstance(st, dict):
-            continue
-        if not wa.window_alive(win):
-            return did, "The window closed while I was working, so I stopped."
-        action = str(st.get("action") or "").strip().lower()
-        text = str(st.get("text") or "")
-        if action not in ("click", "set_value", "type", "key", "hotkey", "wait", "activate"):
-            continue
-        if action == "type" and _SECRET_RE.search(text):
-            return did, "That looks like a password/PIN/card, so I will not type it."
-        if action in ("click", "set_value", "type", "key", "hotkey"):
-            if not _raise_window(win):
-                _log(player, "warning: could not bring the window to the front")
-        if action in ("click", "set_value"):
-            hit = _live_index(win, items, st)
-            if hit is None:
-                return did, "[%s] %r is not on screen any more" % (
-                    st.get("index"), str(st.get("name") or text)[:40])
-            st = dict(st, index=hit.get("i"))
-            if record is not None:
-                record.append({"op": action, "type": hit.get("type"), "name": hit.get("name")})
-        elif action == "type":
-            if record is not None:
-                record.append({"op": "type", "text": text})
-        elif action in ("key", "hotkey"):
-            if record is not None:
-                record.append({"op": action, "keys": str(st.get("keys") or "")})
-        try:
-            before = wa.signature(wa.inventory(win))
-        except Exception:
-            before = None
-        rev = _live.revision(win)
-        what = _execute(win, action, st)
-        did.append(what)
-        _log(player, what)
-        _settle(win, before, rev)
-    return did, None
 
 
-def _verify(win, steps, plan):
-    """True only if the APP itself shows the result - never just our own hope."""
-    end = wa.inventory(win)
-    want = [str(s.get("text") or "") for s in steps
-            if isinstance(s, dict) and str(s.get("action") or "").lower() == "type"]
-    want = [x for x in want if x.strip()]
-    consumed = any(isinstance(s, dict)
-                   and str(s.get("action") or "").lower() in ("key", "hotkey")
-                   for s in steps)
-    if want:
-        if consumed:
-            # the text must now live somewhere OTHER than the box it was typed in
-            vals = " ".join(str(it.get("value") or "") for it in end
-                            if str(it.get("type") or "") != "Edit")
-            if any(x.casefold() in vals.casefold() for x in want):
-                return True, "the app now shows %r" % want[-1]
-        else:
-            blob = " ".join(str(it.get("value") or "") for it in end)
-            if any(x.casefold() in blob.casefold() for x in want):
-                return True, "the app now shows %r" % want[-1]
-    ok, why = _check_evidence(end, plan.get("evidence"))
-    if ok:
-        return True, why
-    exp = str((plan.get("evidence") or {}).get("expect") or "").strip()
-    if len(exp) >= 2:
-        for it in end:
-            b = str(it.get("value") or "") + " " + str(it.get("name") or "")
-            if exp.casefold() in b.casefold():
-                return True, "found %r on screen" % exp
-    return False, why
 
 
 def _forget(app, task, player, why):
@@ -1555,43 +1391,6 @@ def _evidence(win, items, ev):
     return ok, why
 
 
-def _verify(win, steps, plan):
-    """True only when the app shows the result somewhere that MEANS something."""
-    end = wa.inventory(win)
-    messenger = _is_messenger(win)
-    want = [str(s.get("text") or "") for s in steps
-            if isinstance(s, dict) and str(s.get("action") or "").lower() == "type"]
-    want = [x for x in want if x.strip()]
-    consumed = any(isinstance(s, dict)
-                   and str(s.get("action") or "").lower() in ("key", "hotkey")
-                   for s in steps)
-
-    def _blob(skip_inputs):
-        vals = []
-        for it in end:
-            if skip_inputs and str(it.get("type") or "") in _INPUT_TYPES:
-                continue
-            vals.append(str(it.get("value") or ""))
-        return " ".join(vals)
-
-    if want:
-        blob = _blob(bool(consumed and messenger))
-        if any(x.casefold() in blob.casefold() for x in want):
-            return True, "the app now shows %r" % want[-1]
-
-    ok, why = _evidence(win, end, plan.get("evidence"))
-    if ok:
-        return True, why
-
-    exp = str((plan.get("evidence") or {}).get("expect") or "").strip()
-    if len(exp) >= 2:
-        for it in end:
-            if messenger and str(it.get("type") or "") in _INPUT_TYPES:
-                continue
-            b = str(it.get("value") or "") + " " + str(it.get("name") or "")
-            if exp.casefold() in b.casefold():
-                return True, "found %r on screen" % exp
-    return False, why
 
 
 # ── the proof must be the MESSAGE (appended last: this wins) ─────────────────
@@ -1601,51 +1400,6 @@ def _verify(win, steps, plan):
 # the conversation (never an input field, never the recipient's name), so a send
 # is only called done when the words really are there.
 
-def _verify(win, steps, plan):
-    end = wa.inventory(win)
-    messenger = _is_messenger(win)
-    steps = [s for s in steps if isinstance(s, dict)]
-    consumed = any(str(s.get("action") or "").lower() in ("key", "hotkey")
-                   for s in steps)
-
-    def _blob(skip_inputs):
-        vals = []
-        for it in end:
-            if skip_inputs and str(it.get("type") or "") in _INPUT_TYPES:
-                continue
-            vals.append(str(it.get("value") or ""))
-        return " ".join(vals)
-
-    if messenger and consumed:
-        task = _CONTEXT["task"] or (_CURRENT[0] or "")
-        pay = _chat.task_payload(task, steps, _recipient(task, _payloads(steps)))
-        if pay:
-            if pay.casefold() in _blob(True).casefold():
-                return True, "the message %r is in the conversation" % pay
-            return False, ("I cannot see %r in the conversation, so I will not "
-                           "claim it was sent" % pay)
-
-    want = [str(s.get("text") or "") for s in steps
-            if str(s.get("action") or "").lower() == "type"]
-    want = [x for x in want if x.strip()]
-    if want:
-        blob = _blob(bool(consumed and messenger))
-        if any(x.casefold() in blob.casefold() for x in want):
-            return True, "the app now shows %r" % want[-1]
-
-    ok, why = _evidence(win, end, plan.get("evidence"))
-    if ok:
-        return True, why
-
-    exp = str((plan.get("evidence") or {}).get("expect") or "").strip()
-    if len(exp) >= 2:
-        for it in end:
-            if messenger and str(it.get("type") or "") in _INPUT_TYPES:
-                continue
-            b = str(it.get("value") or "") + " " + str(it.get("name") or "")
-            if exp.casefold() in b.casefold():
-                return True, "found %r on screen" % exp
-    return False, why
 
 
 # ── a messenger is never "done" from an input field (appended last) ──────────
@@ -1935,16 +1689,11 @@ def _row_name(raw) -> str:
 _conv_ok_v1 = _conv_ok
 
 
-def _conv_ok(win, task, name=""):
-    """The same check as before, on the NAME part of the row, not its preview."""
-    return _conv_ok_v1(win, task, _row_name(name))
 
 
 # _conv_ok default restored (final): line 1301 calls _conv_ok(win, task) with two
 # args; the identity-guard override must keep the original default. Row-name
 # normalisation is unchanged.
-def _conv_ok(win, task, name=""):
-    return _conv_ok_v1(win, task, _row_name(name))
 
 
 # ── _conv_ok: empty name must mean "extract the recipient", not "the task" ───
@@ -1953,14 +1702,6 @@ def _conv_ok(win, task, name=""):
 # no explicit clicked name is given, the recipient must be pulled out of the task
 # (the original empty-name path used the raw task instead). Name still goes
 # through _row_name, so a person's row keeps its preview stripped.
-def _conv_ok(win, task, name=""):
-    who = _row_name(name)
-    if not who:
-        try:
-            who = _recipient(task) or ""
-        except Exception:
-            who = ""
-    return _conv_ok_v1(win, task, who)
 
 
 # ── _conv_ok: back to the original rule (open-chat name appears in the task) ─
