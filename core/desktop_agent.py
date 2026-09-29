@@ -1821,3 +1821,82 @@ try:
     _MESSENGERS = tuple(sorted(set(_MESSENGERS) | set(_apps.MESSENGER_KEYS)))
 except Exception:
     pass
+
+
+# ── _pick_window v2: never mistake a console or a dialog for the app ─────────
+# MEASURED: launching an app that is NOT installed made Windows show a "cannot
+# find" DIALOG titled with the app's name; _pick_window returned that dialog (a
+# #32770 window whose process is cmd.exe). The old guard also read key "cls",
+# which is empty on some builds, so it never fired. v2 rejects dialog classes and
+# console processes by BOTH class-key spellings and by exe name, prefers an exact
+# EXE match over a loose title match, and keeps a minimized window only as a last
+# resort instead of losing it entirely.
+_REJECT_CLASSES = {
+    "ConsoleWindowClass", "CASCADIA_HOSTING_WINDOW_CLASS", "PseudoConsoleWindow",
+    "mintty", "#32770",
+}
+_REJECT_EXES = {
+    "cmd.exe", "conhost.exe", "powershell.exe", "pwsh.exe",
+    "windowsterminal.exe", "wt.exe", "mintty.exe", "bash.exe", "sh.exe",
+}
+
+
+def _win_class(w):
+    for k in ("cls", "class", "class_name", "classname", "ClassName"):
+        v = (w or {}).get(k)
+        if v:
+            return str(v)
+    return ""
+
+
+def _win_exe(w):
+    return str((w or {}).get("exe") or "").lower().rsplit("\\", 1)[-1]
+
+
+def _pick_window(app, tries=6, settle=0.5):
+    """The app's REAL main window - never a console or a transient dialog."""
+    if not app:
+        return None
+    q = str(app).strip().lower()
+    q_exe = q if q.endswith(".exe") else q + ".exe"
+
+    def area(w):
+        try:
+            r = w.get("rect") or (0, 0, 0, 0)
+            return max(0, r[2] - r[0]) * max(0, r[3] - r[1])
+        except Exception:
+            return 0
+
+    def usable(w):
+        if _win_class(w) in _REJECT_CLASSES:
+            return False
+        return _win_exe(w) not in _REJECT_EXES
+
+    last, last_hwnd = None, None
+    for _ in range(max(1, tries)):
+        try:
+            ws = [w for w in wa.list_windows() if usable(w)]
+        except Exception:
+            ws = []
+
+        exact = [w for w in ws if _win_exe(w) == q_exe]
+        hits = exact or [w for w in ws
+                         if q in (str(w.get("name") or "") + " "
+                                  + str(w.get("exe") or "")).lower()]
+        if hits:
+            def rank(w):
+                r = w.get("rect") or (0, 0, 0, 0)
+                try:
+                    bad = bool(w.get("minimized")) or r[0] <= -30000 or r[1] <= -30000
+                except Exception:
+                    bad = True
+                return (1 if bad else 0, -area(w))
+
+            hits.sort(key=rank)
+            best = hits[0]
+            h = best.get("hwnd")
+            if last_hwnd is not None and h == last_hwnd:
+                return best
+            last, last_hwnd = best, h
+        time.sleep(settle)
+    return last
