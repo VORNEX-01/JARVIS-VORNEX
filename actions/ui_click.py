@@ -365,31 +365,6 @@ def _window_choices():
     return out
 
 
-def _resolve_window(title):
-    ws = [w for w in _windows() if _area(w) > 0]
-    t = str(title or "").strip().lower()
-    if t:
-        hits = [w for w in ws
-                if t in (str(w.get("name") or "") + " " + str(w.get("exe") or "")).lower()]
-        if not hits:
-            return None, ("No window matches '%s'. Open windows: %s"
-                          % (title, " | ".join(_window_choices()[:15])))
-        hits.sort(key=lambda w: -_area(w))
-        return hits[0], ""
-
-    fg = _foreground()
-    if fg and not _is_console(fg) and _area(fg) > 0:
-        return fg, ""
-
-    # foreground is a terminal: look for a dialog-shaped window instead
-    small = sorted([w for w in ws
-                    if not _is_console(w) and _area(w) <= 0.8 * _screen_area()],
-                   key=_area)
-    for w in small[:5]:
-        if _looks_like_dialog(w):
-            return w, ""
-    return None, ("I am running inside a terminal so I cannot infer the window - "
-                  "name it, or open windows: " + " | ".join(_window_choices()[:15]))
 
 
 def _file_exists(expect):
@@ -524,32 +499,8 @@ def _fg_hwnd():
         return 0
 
 
-def _focus(win):
-    root = _wrap(win)
-    if root is None:
-        return False
-    try:
-        root.restore()
-    except Exception:
-        pass
-    for how in ("set_focus", "set_keyboard_focus"):
-        try:
-            getattr(root, how)()
-            return True
-        except Exception:
-            continue
-    return False
 
 
-def _send_keys(win, keys, focus=True):
-    if focus:
-        _focus(win)
-        time.sleep(0.25)
-    try:
-        _send_keys_raw(str(keys), pause=0.05)
-        return True
-    except Exception:
-        return False
 
 
 def _names_of(w):
@@ -759,60 +710,12 @@ def _is_fg(hwnd) -> bool:
         return False
 
 
-def _force_foreground(win, tries=10):
-    hwnd = _hwnd(win)
-    if not hwnd:
-        return False
-    try:
-        if not _u32.IsWindow(hwnd):
-            return False
-        if _u32.IsIconic(hwnd):
-            _u32.ShowWindow(hwnd, 9)      # SW_RESTORE
-    except Exception:
-        pass
-    cur = int(_kt32.GetCurrentThreadId())
-    for _ in range(max(1, tries)):
-        if _is_fg(hwnd):
-            return True
-        fg = int(_u32.GetForegroundWindow())
-        fg_th = int(_u32.GetWindowThreadProcessId(fg, None))
-        tg_th = int(_u32.GetWindowThreadProcessId(hwnd, None))
-        attached = []
-        try:
-            for th in (fg_th, tg_th):
-                if th and th != cur and th not in attached:
-                    _u32.AttachThreadInput(cur, th, True)
-                    attached.append(th)
-            _u32.BringWindowToTop(hwnd)
-            _u32.SetForegroundWindow(hwnd)
-        except Exception:
-            pass
-        finally:
-            for th in attached:
-                try:
-                    _u32.AttachThreadInput(cur, th, False)
-                except Exception:
-                    pass
-        if _is_fg(hwnd):
-            return True
-        time.sleep(0.2)
-    return _is_fg(hwnd)
 
 
 def _focus(win):                         # redefined: real, verified foreground
     return _force_foreground(win)
 
 
-def _send_keys(win, keys, focus=True):   # redefined: never type into the wrong window
-    if focus and not _force_foreground(win):
-        return False
-    if not _is_fg(_hwnd(win)):           # proven in front, or we do not type
-        return False
-    try:
-        _send_keys_raw(str(keys), pause=0.05)
-        return True
-    except Exception:
-        return False
 
 
 def _menu_save_as(win):
@@ -839,64 +742,12 @@ def _menu_save_as(win):
 # UNIQUELY identified Save (auto_id '1', class 'Button') - never a blind Enter -
 # handles an overwrite prompt by ID, and then asks the FILESYSTEM whether it
 # really happened. No file on disk => it says so, always.
-def _fg_win():
-    try:
-        import ctypes
-        h = int(ctypes.windll.user32.GetForegroundWindow())
-    except Exception:
-        return None
-    for w in _windows():
-        if _hwnd(w) == h:
-            return w
-    return None
 
 
-def _uia_dialog(dlg):
-    from pywinauto import Application
-    h = _hwnd(dlg)
-    app = Application(backend="uia").connect(handle=h)
-    d = app.window(handle=h)
-    try:
-        d.wait("visible enabled", timeout=6)
-    except Exception:
-        pass
-    return d
 
 
-def _first(d, probes):
-    for p in probes:
-        try:
-            c = p()
-            if c is not None and c.exists(timeout=0.6):
-                return c
-        except Exception:
-            continue
-    return None
 
 
-def _click_replace_if_prompted(before):
-    import time as _t
-    for _ in range(8):
-        w = _wait_for_dialog(before, timeout=0.7)
-        if w is None:
-            return ""
-        try:
-            d = _uia_dialog(w)
-            btn = _first(d, [
-                lambda: d.child_window(title_re="(?i)^&?(replace|yes|جایگزین|بله)$",
-                                       class_name="Button"),
-                lambda: d.child_window(auto_id="6", class_name="Button"),   # Yes
-            ])
-            if btn is not None:
-                try:
-                    btn.click_input()
-                except Exception:
-                    btn.invoke()
-                return " (I confirmed the overwrite)"
-        except Exception:
-            pass
-        _t.sleep(0.25)
-    return ""
 
 
 def _save_as_v2(p):
