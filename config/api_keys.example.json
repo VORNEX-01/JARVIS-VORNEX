@@ -1,0 +1,6 @@
+{
+  "gemini_api_keys": ["YOUR_GEMINI_API_KEY_HERE"],
+  "assistant_name": "JARVIS",
+  "user_name": "",
+  "ui_color": ""
+}

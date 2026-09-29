@@ -1,0 +1,78 @@
+{
+ "schema": 1,
+ "recipes": [
+  {
+   "key": "fe15917bc51292b9",
+   "app": "Notepad",
+   "prefix": "type the user's text",
+   "has_tail": false,
+   "payload": null,
+   "steps": [
+    {
+     "op": "click",
+     "type": "Edit",
+     "name": "Text Editor"
+    },
+    {
+     "op": "type",
+     "text": "سلام این یک متن تستی هست."
+    }
+   ],
+   "expect": [
+    "سلام این یک متن تستی هست."
+   ],
+   "updated": 1790666382.860702,
+   "hits": 0,
+   "ok": true,
+   "schema": 2
+  },
+  {
+   "key": "ec4bcf0a3f5c7a32",
+   "app": "Notepad",
+   "prefix": "open Notepad and type this exact sentence into the document",
+   "has_tail": true,
+   "payload": "vornex lives here",
+   "steps": [
+    {
+     "op": "click",
+     "type": "Edit",
+     "name": "Text Editor"
+    },
+    {
+     "op": "type",
+     "uses_payload": true
+    }
+   ],
+   "expect": [
+    "${payload}"
+   ],
+   "updated": 1790594704.5464885,
+   "hits": 2,
+   "ok": true,
+   "schema": 2
+  },
+  {
+   "key": "7febdc512d8692da",
+   "app": "Notepad",
+   "prefix": "type this exact sentence into the document and leave it there",
+   "has_tail": true,
+   "payload": "vornex is alive",
+   "steps": [
+    {
+     "op": "click",
+     "type": "Edit",
+     "name": "Text Editor"
+    },
+    {
+     "op": "type",
+     "uses_payload": true
+    }
+   ],
+   "expect": [
+    "${payload}"
+   ],
+   "updated": 1790585080.5881917,
+   "hits": 3
+  }
+ ]
+}
