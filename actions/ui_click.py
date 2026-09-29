@@ -733,3 +733,532 @@ TOOL["description"] += (
     "cannot prove. 'testy.txt' alone means the Desktop."
 )
 TOOL["handler"] = ui_click
+
+
+# ── v4: put the keys in the RIGHT window, or the save never happens ──────────
+# MEASURED: save_as on Notepad said "Ctrl+S opened no Save dialog ... so nothing
+# was saved" while the window itself resolved perfectly. The test ran from MINGW,
+# so the FOREGROUND window was the terminal. _focus() only REQUESTS focus and
+# pywinauto.keyboard.send_keys() types into the ACTIVE window - so Ctrl+S went to
+# the console and Notepad never saw it. Windows refuses SetForegroundWindow to a
+# background process on purpose; the documented way through is AttachThreadInput
+# to the current + target threads, then BringWindowToTop + SetForegroundWindow,
+# and - critically - to VERIFY GetForegroundWindow()==hwnd before typing. This
+# layer does exactly that; _send_keys now refuses to type unless the target is
+# provably in front. A File->Save As menu fallback covers Ctrl+S doing nothing.
+import ctypes as _ct
+
+_u32 = _ct.windll.user32
+_kt32 = _ct.windll.kernel32
+
+
+def _is_fg(hwnd) -> bool:
+    try:
+        return int(_u32.GetForegroundWindow()) == int(hwnd or 0)
+    except Exception:
+        return False
+
+
+def _force_foreground(win, tries=10):
+    hwnd = _hwnd(win)
+    if not hwnd:
+        return False
+    try:
+        if not _u32.IsWindow(hwnd):
+            return False
+        if _u32.IsIconic(hwnd):
+            _u32.ShowWindow(hwnd, 9)      # SW_RESTORE
+    except Exception:
+        pass
+    cur = int(_kt32.GetCurrentThreadId())
+    for _ in range(max(1, tries)):
+        if _is_fg(hwnd):
+            return True
+        fg = int(_u32.GetForegroundWindow())
+        fg_th = int(_u32.GetWindowThreadProcessId(fg, None))
+        tg_th = int(_u32.GetWindowThreadProcessId(hwnd, None))
+        attached = []
+        try:
+            for th in (fg_th, tg_th):
+                if th and th != cur and th not in attached:
+                    _u32.AttachThreadInput(cur, th, True)
+                    attached.append(th)
+            _u32.BringWindowToTop(hwnd)
+            _u32.SetForegroundWindow(hwnd)
+        except Exception:
+            pass
+        finally:
+            for th in attached:
+                try:
+                    _u32.AttachThreadInput(cur, th, False)
+                except Exception:
+                    pass
+        if _is_fg(hwnd):
+            return True
+        time.sleep(0.2)
+    return _is_fg(hwnd)
+
+
+def _focus(win):                         # redefined: real, verified foreground
+    return _force_foreground(win)
+
+
+def _send_keys(win, keys, focus=True):   # redefined: never type into the wrong window
+    if focus and not _force_foreground(win):
+        return False
+    if not _is_fg(_hwnd(win)):           # proven in front, or we do not type
+        return False
+    try:
+        _send_keys_raw(str(keys), pause=0.05)
+        return True
+    except Exception:
+        return False
+
+
+def _menu_save_as(win):
+    """Fallback with no keystrokes: File -> Save As through UIA by name."""
+    title = str((win or {}).get("name") or "")
+    if not title:
+        return False
+    try:
+        ui_click({"action": "click", "window": title, "name": "File"})
+        time.sleep(0.4)
+        ui_click({"action": "click", "window": title, "name": "Save as"})
+        return True
+    except Exception:
+        return False
+
+
+# ── v5: the real Save-As path, matched by IDENTITY not by UIA Name ───────────
+# MEASURED: with the foreground fix, Ctrl+S DID open the dialog (focus=True,
+# fg==win=True) but the reader reported "no readable file-name field" - because
+# it looked for a control NAME and the modern Windows 11 save dialog's file-name
+# field has an EMPTY Name (class 'Edit' under 'FileNameControlHost', auto_id
+# '1001'); it may also not expose a Value pattern. So this path matches by
+# auto_id / class_name, writes with the CLIPBOARD (not ValuePattern), clicks a
+# UNIQUELY identified Save (auto_id '1', class 'Button') - never a blind Enter -
+# handles an overwrite prompt by ID, and then asks the FILESYSTEM whether it
+# really happened. No file on disk => it says so, always.
+def _fg_win():
+    try:
+        import ctypes
+        h = int(ctypes.windll.user32.GetForegroundWindow())
+    except Exception:
+        return None
+    for w in _windows():
+        if _hwnd(w) == h:
+            return w
+    return None
+
+
+def _uia_dialog(dlg):
+    from pywinauto import Application
+    h = _hwnd(dlg)
+    app = Application(backend="uia").connect(handle=h)
+    d = app.window(handle=h)
+    try:
+        d.wait("visible enabled", timeout=6)
+    except Exception:
+        pass
+    return d
+
+
+def _first(d, probes):
+    for p in probes:
+        try:
+            c = p()
+            if c is not None and c.exists(timeout=0.6):
+                return c
+        except Exception:
+            continue
+    return None
+
+
+def _click_replace_if_prompted(before):
+    import time as _t
+    for _ in range(8):
+        w = _wait_for_dialog(before, timeout=0.7)
+        if w is None:
+            return ""
+        try:
+            d = _uia_dialog(w)
+            btn = _first(d, [
+                lambda: d.child_window(title_re="(?i)^&?(replace|yes|جایگزین|بله)$",
+                                       class_name="Button"),
+                lambda: d.child_window(auto_id="6", class_name="Button"),   # Yes
+            ])
+            if btn is not None:
+                try:
+                    btn.click_input()
+                except Exception:
+                    btn.invoke()
+                return " (I confirmed the overwrite)"
+        except Exception:
+            pass
+        _t.sleep(0.25)
+    return ""
+
+
+def _save_as_v2(p):
+    import os as _o
+    import time as _t
+    title = str((p or {}).get("window") or "").strip()
+    name = str((p or {}).get("text") or (p or {}).get("name") or "").strip()
+    if not name:
+        return "Give me a file name: {'action':'save_as','window':'Notepad','text':'testy.txt'}"
+    dest = _desktop_path(name)
+
+    tgt = _resolve_window(title) if title else _fg_win()
+    if tgt is None:
+        return "I cannot see a window matching %r - open the app first." % title
+    before = {_hwnd(w) for w in _windows()}
+    st_before = _stat_of(dest)
+    if not _force_foreground(tgt):
+        return "I could not bring %r to the front, so I did not type blind." % title
+    if not _send_keys(tgt, "^s"):
+        return "I could not send Ctrl+S to %r." % title
+
+    dlg = _wait_for_dialog(before, timeout=6.0, pid=tgt.get("pid"))
+    if dlg is None:
+        st = _stat_of(dest)
+        if st and st != st_before:
+            return "Saved (no dialog needed - the file was already named). %s is on disk." % dest
+        return ("Ctrl+S opened no Save dialog in %r and %s is not on disk, "
+                "so nothing was saved." % (title, dest))
+
+    try:
+        d = _uia_dialog(dlg)
+    except Exception as e:
+        return "I opened the Save dialog but could not attach to it: %s" % e
+
+    field = _first(d, [
+        lambda: d.child_window(auto_id="FileNameControlHost", class_name="Edit"),
+        lambda: d.child_window(auto_id="1001", class_name="Edit"),
+        lambda: d.child_window(auto_id="1001"),
+        lambda: d.child_window(class_name="Edit"),
+    ])
+    if field is None:
+        return ("The Save dialog opened but exposes no file-name field. "
+                "Its controls: %s" % _names_of(dlg))
+
+    from pywinauto.keyboard import send_keys as _sk
+    try:
+        field.click_input()
+        _sk("^a")
+    except Exception:
+        pass
+    wrote = False
+    try:
+        import pyperclip
+        pyperclip.copy(dest)
+        _t.sleep(0.15)
+        _sk("^v")
+        wrote = True
+    except Exception:
+        pass
+    if not wrote:
+        try:
+            _sk(dest, with_spaces=True, pause=0.01)
+            wrote = True
+        except Exception as e:
+            return "I could not type into the file-name field: %s" % e
+    _t.sleep(0.3)
+
+    try:
+        shown = str(field.get_value() or field.window_text() or "")
+    except Exception:
+        shown = ""
+    if shown and _o.path.basename(dest).casefold() not in shown.casefold():
+        return ("I typed %r but the field reads %r - stopping before Save."
+                % (dest, shown[:80]))
+
+    save = _first(d, [
+        lambda: d.child_window(auto_id="1", class_name="Button"),
+        lambda: d.child_window(title_re="(?i)^&?(save|ذخیره( کردن)?)$",
+                               class_name="Button"),
+    ])
+    if save is None:
+        return ("I filled the file name but found no uniquely identified Save "
+                "button, so I did not press Enter blind. Controls: %s" % _names_of(dlg))
+    try:
+        save.click_input()
+    except Exception:
+        try:
+            save.invoke()
+        except Exception as e:
+            return "I could not press Save: %s" % e
+
+    extra = _click_replace_if_prompted(before | {_hwnd(dlg)})
+
+    t0 = _t.time()
+    while _t.time() - t0 < 8.0:
+        st = _stat_of(dest)
+        if st and st != st_before:
+            return "Saved%s. I checked the disk: %s now exists (%d bytes)." % (
+                extra, dest, st[1])
+        _t.sleep(0.25)
+    return ("I pressed Save but %s is not on disk (or did not change), so I will "
+            "not claim it was saved." % dest)
+
+
+_ui_click_v5 = ui_click
+
+
+def ui_click(parameters, player=None, session_memory=None) -> str:
+    act = str((parameters or {}).get("action") or "").lower()
+    if act in ("save_as", "saveas", "save_as_file"):
+        return _save_as_v2(parameters)
+    return _ui_click_v5(parameters, player=player, session_memory=session_memory)
+
+
+# ── v5: the real Save-As path, matched by IDENTITY not by UIA Name ───────────
+# MEASURED: with the foreground fix, Ctrl+S DID open the dialog (focus=True,
+# fg==win=True) but the reader reported "no readable file-name field" - because
+# it looked for a control NAME and the modern Windows 11 save dialog's file-name
+# field has an EMPTY Name (class 'Edit' under 'FileNameControlHost', auto_id
+# '1001'); it may also not expose a Value pattern. So this path matches by
+# auto_id / class_name, writes with the CLIPBOARD (not ValuePattern), clicks a
+# UNIQUELY identified Save (auto_id '1', class 'Button') - never a blind Enter -
+# handles an overwrite prompt by ID, and then asks the FILESYSTEM whether it
+# really happened. No file on disk => it says so, always.
+def _fg_win():
+    try:
+        import ctypes
+        h = int(ctypes.windll.user32.GetForegroundWindow())
+    except Exception:
+        return None
+    for w in _windows():
+        if _hwnd(w) == h:
+            return w
+    return None
+
+
+def _uia_dialog(dlg):
+    from pywinauto import Application
+    h = _hwnd(dlg)
+    app = Application(backend="uia").connect(handle=h)
+    d = app.window(handle=h)
+    try:
+        d.wait("visible enabled", timeout=6)
+    except Exception:
+        pass
+    return d
+
+
+def _first(d, probes):
+    for p in probes:
+        try:
+            c = p()
+            if c is not None and c.exists(timeout=0.6):
+                return c
+        except Exception:
+            continue
+    return None
+
+
+def _click_replace_if_prompted(before):
+    import time as _t
+    for _ in range(8):
+        w = _wait_for_dialog(before, timeout=0.7)
+        if w is None:
+            return ""
+        try:
+            d = _uia_dialog(w)
+            btn = _first(d, [
+                lambda: d.child_window(title_re="(?i)^&?(replace|yes|جایگزین|بله)$",
+                                       class_name="Button"),
+                lambda: d.child_window(auto_id="6", class_name="Button"),   # Yes
+            ])
+            if btn is not None:
+                try:
+                    btn.click_input()
+                except Exception:
+                    btn.invoke()
+                return " (I confirmed the overwrite)"
+        except Exception:
+            pass
+        _t.sleep(0.25)
+    return ""
+
+
+def _save_as_v2(p):
+    import os as _o
+    import time as _t
+    title = str((p or {}).get("window") or "").strip()
+    name = str((p or {}).get("text") or (p or {}).get("name") or "").strip()
+    if not name:
+        return "Give me a file name: {'action':'save_as','window':'Notepad','text':'testy.txt'}"
+    dest = _desktop_path(name)
+
+    tgt = _resolve_window(title) if title else _fg_win()
+    if tgt is None:
+        return "I cannot see a window matching %r - open the app first." % title
+    before = {_hwnd(w) for w in _windows()}
+    st_before = _stat_of(dest)
+    if not _force_foreground(tgt):
+        return "I could not bring %r to the front, so I did not type blind." % title
+    if not _send_keys(tgt, "^s"):
+        return "I could not send Ctrl+S to %r." % title
+
+    dlg = _wait_for_dialog(before, timeout=6.0, pid=tgt.get("pid"))
+    if dlg is None:
+        st = _stat_of(dest)
+        if st and st != st_before:
+            return "Saved (no dialog needed - the file was already named). %s is on disk." % dest
+        return ("Ctrl+S opened no Save dialog in %r and %s is not on disk, "
+                "so nothing was saved." % (title, dest))
+
+    try:
+        d = _uia_dialog(dlg)
+    except Exception as e:
+        return "I opened the Save dialog but could not attach to it: %s" % e
+
+    field = _first(d, [
+        lambda: d.child_window(auto_id="FileNameControlHost", class_name="Edit"),
+        lambda: d.child_window(auto_id="1001", class_name="Edit"),
+        lambda: d.child_window(auto_id="1001"),
+        lambda: d.child_window(class_name="Edit"),
+    ])
+    if field is None:
+        return ("The Save dialog opened but exposes no file-name field. "
+                "Its controls: %s" % _names_of(dlg))
+
+    from pywinauto.keyboard import send_keys as _sk
+    try:
+        field.click_input()
+        _sk("^a")
+    except Exception:
+        pass
+    wrote = False
+    try:
+        import pyperclip
+        pyperclip.copy(dest)
+        _t.sleep(0.15)
+        _sk("^v")
+        wrote = True
+    except Exception:
+        pass
+    if not wrote:
+        try:
+            _sk(dest, with_spaces=True, pause=0.01)
+            wrote = True
+        except Exception as e:
+            return "I could not type into the file-name field: %s" % e
+    _t.sleep(0.3)
+
+    try:
+        shown = str(field.get_value() or field.window_text() or "")
+    except Exception:
+        shown = ""
+    if shown and _o.path.basename(dest).casefold() not in shown.casefold():
+        return ("I typed %r but the field reads %r - stopping before Save."
+                % (dest, shown[:80]))
+
+    save = _first(d, [
+        lambda: d.child_window(auto_id="1", class_name="Button"),
+        lambda: d.child_window(title_re="(?i)^&?(save|ذخیره( کردن)?)$",
+                               class_name="Button"),
+    ])
+    if save is None:
+        return ("I filled the file name but found no uniquely identified Save "
+                "button, so I did not press Enter blind. Controls: %s" % _names_of(dlg))
+    try:
+        save.click_input()
+    except Exception:
+        try:
+            save.invoke()
+        except Exception as e:
+            return "I could not press Save: %s" % e
+
+    extra = _click_replace_if_prompted(before | {_hwnd(dlg)})
+
+    t0 = _t.time()
+    while _t.time() - t0 < 8.0:
+        st = _stat_of(dest)
+        if st and st != st_before:
+            return "Saved%s. I checked the disk: %s now exists (%d bytes)." % (
+                extra, dest, st[1])
+        _t.sleep(0.25)
+    return ("I pressed Save but %s is not on disk (or did not change), so I will "
+            "not claim it was saved." % dest)
+
+
+_ui_click_v5 = ui_click
+
+
+def ui_click(parameters, player=None, session_memory=None) -> str:
+    act = str((parameters or {}).get("action") or "").lower()
+    if act in ("save_as", "saveas", "save_as_file"):
+        return _save_as_v2(parameters)
+    return _ui_click_v5(parameters, player=player, session_memory=session_memory)
+
+
+# ── v6: resolve the target with the SAME picker the engine trusts ────────────
+# MEASURED contradiction: the test foregrounded da._pick_window('Notepad') and got
+# focus=True, but save_as then re-resolved with ui_click._resolve_window() and
+# reported "I could not bring 'Notepad' to the front" - i.e. the two resolvers
+# returned DIFFERENT windows (the second hidden/minimized/wrong), because
+# _force_foreground refused to type into anything it could not prove was in front.
+# Fix: resolve once, THROUGH desktop_agent._pick_window (the hardened picker),
+# validate the HWND, treat an already-foreground window as instant success, and
+# retry politely instead of giving up. Re-resolving was the only reason the test
+# and save_as disagreed.
+def _resolve_window(title):
+    if not title:
+        return _fg_win()
+    try:
+        from core import desktop_agent as da
+        w = da._pick_window(title, tries=3, settle=0.2)
+    except Exception:
+        w = None
+    h = _hwnd(w)
+    try:
+        if h and _u32.IsWindow(h):
+            return w
+    except Exception:
+        pass
+    return None
+
+
+def _force_foreground(win, tries=12):
+    import time as _t
+    hwnd = _hwnd(win)
+    if not hwnd:
+        return False
+    try:
+        if not _u32.IsWindow(hwnd):
+            return False
+        if _is_fg(hwnd):
+            return True
+        if _u32.IsIconic(hwnd):
+            _u32.ShowWindow(hwnd, 9)          # SW_RESTORE
+    except Exception:
+        pass
+    cur = int(_kt32.GetCurrentThreadId())
+    for _ in range(max(1, tries)):
+        if _is_fg(hwnd):
+            return True
+        fg = int(_u32.GetForegroundWindow())
+        fg_th = int(_u32.GetWindowThreadProcessId(fg, None))
+        tg_th = int(_u32.GetWindowThreadProcessId(hwnd, None))
+        attached = []
+        try:
+            for th in (fg_th, tg_th):
+                if th and th != cur and th not in attached:
+                    _u32.AttachThreadInput(cur, th, True)
+                    attached.append(th)
+            _u32.BringWindowToTop(hwnd)
+            _u32.SetForegroundWindow(hwnd)
+            _u32.SetActiveWindow(hwnd)
+        except Exception:
+            pass
+        finally:
+            for th in attached:
+                try:
+                    _u32.AttachThreadInput(cur, th, False)
+                except Exception:
+                    pass
+        if _is_fg(hwnd):
+            return True
+        _t.sleep(0.15)
+    return _is_fg(hwnd)
