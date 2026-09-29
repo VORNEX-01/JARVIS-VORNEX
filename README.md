@@ -91,6 +91,11 @@ for self-extension.
 - A Gemini API key
 - A microphone
 
+<p align="center">
+  <a href="https://instagram.com/vornex_web">Instagram</a> ·
+  <a href="https://t.me/VORNEX_01">Telegram</a>
+</p>
+
 <p align="center">Made by VORNEX</p>
 
 ---
