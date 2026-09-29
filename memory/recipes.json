@@ -2,6 +2,126 @@
  "schema": 1,
  "recipes": [
   {
+   "key": "d810dde5e3618037",
+   "app": "Notepad",
+   "prefix": "Save text file as testy.txt to the Desktop using the Save As window",
+   "has_tail": false,
+   "payload": null,
+   "steps": [
+    {
+     "op": "click",
+     "type": "MenuItem",
+     "name": "File"
+    },
+    {
+     "op": "click",
+     "type": "MenuItem",
+     "name": "Help"
+    },
+    {
+     "op": "click",
+     "type": "MenuItem",
+     "name": "File"
+    },
+    {
+     "op": "key",
+     "keys": "ctrl+shift+s"
+    }
+   ],
+   "expect": [
+    ""
+   ],
+   "updated": 1790674595.0878794,
+   "hits": 0,
+   "ok": true,
+   "schema": 2
+  },
+  {
+   "key": "2d6bea304503103b",
+   "app": "Save As",
+   "prefix": "Save text file as testy.txt to the Desktop using the Save As window",
+   "has_tail": false,
+   "payload": null,
+   "steps": [
+    {
+     "op": "click",
+     "type": "TreeItem",
+     "name": "Start of Quick Access - Desktop (pinned)"
+    },
+    {
+     "op": "click",
+     "type": "ComboBox",
+     "name": "File name:"
+    },
+    {
+     "op": "type",
+     "text": "testy.txt"
+    },
+    {
+     "op": "click",
+     "type": "Button",
+     "name": "Open"
+    }
+   ],
+   "expect": [
+    "testy.txt"
+   ],
+   "updated": 1790674480.4748704,
+   "hits": 0,
+   "ok": true,
+   "schema": 2
+  },
+  {
+   "key": "8291079b26ca8556",
+   "app": "Notepad",
+   "prefix": "save file and close",
+   "has_tail": false,
+   "payload": null,
+   "steps": [
+    {
+     "op": "hotkey",
+     "keys": "ctrl+s"
+    },
+    {
+     "op": "click",
+     "type": "Button",
+     "name": "Close"
+    }
+   ],
+   "expect": [
+    ""
+   ],
+   "updated": 1790674390.3587494,
+   "hits": 0,
+   "ok": true,
+   "schema": 2
+  },
+  {
+   "key": "227888a5a0a4fd3f",
+   "app": "Notepad",
+   "prefix": "تایپ متن در نوت‌پد",
+   "has_tail": false,
+   "payload": null,
+   "steps": [
+    {
+     "op": "click",
+     "type": "Edit",
+     "name": "Text Editor"
+    },
+    {
+     "op": "type",
+     "text": "سلام، این یک متن تستی است."
+    }
+   ],
+   "expect": [
+    "سلام، این یک متن تستی است."
+   ],
+   "updated": 1790674365.5097795,
+   "hits": 0,
+   "ok": true,
+   "schema": 2
+  },
+  {
    "key": "fe15917bc51292b9",
    "app": "Notepad",
    "prefix": "type the user's text",
