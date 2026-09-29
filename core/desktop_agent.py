@@ -1935,6 +1935,150 @@ def _row_name(raw) -> str:
 _conv_ok_v1 = _conv_ok
 
 
-def _conv_ok(win, task, name):
+def _conv_ok(win, task, name=""):
     """The same check as before, on the NAME part of the row, not its preview."""
     return _conv_ok_v1(win, task, _row_name(name))
+
+
+# _conv_ok default restored (final): line 1301 calls _conv_ok(win, task) with two
+# args; the identity-guard override must keep the original default. Row-name
+# normalisation is unchanged.
+def _conv_ok(win, task, name=""):
+    return _conv_ok_v1(win, task, _row_name(name))
+
+
+# ── _conv_ok: empty name must mean "extract the recipient", not "the task" ───
+# MEASURED: for the delete task, _conv_ok(win, task) compared the open chat
+# against the WHOLE task string ("delete the last message ...") and refused. When
+# no explicit clicked name is given, the recipient must be pulled out of the task
+# (the original empty-name path used the raw task instead). Name still goes
+# through _row_name, so a person's row keeps its preview stripped.
+def _conv_ok(win, task, name=""):
+    who = _row_name(name)
+    if not who:
+        try:
+            who = _recipient(task) or ""
+        except Exception:
+            who = ""
+    return _conv_ok_v1(win, task, who)
+
+
+# ── _conv_ok: back to the original rule (open-chat name appears in the task) ─
+# The previous override fed _recipient(task) in when no name was given, and the
+# extractor returned the verb 'delete' - so the guard compared 'Telegram' with
+# 'delete' and refused. The original rule is right; only the clicked row name is
+# normalised so a multi-line row keeps its name and drops the preview.
+def _conv_ok(win, task, name=""):
+    return _conv_ok_v1(win, task, _row_name(name))
+
+
+# ── _recipient: pull the PERSON out of the task, not the verb ────────────────
+# MEASURED: _recipient("delete the last message in the chat with Mahak ...") gave
+# 'delete', so _open_chat tried to open a chat named "delete", none opened, and
+# the send guard then refused the whole task. The task names the person after
+# "chat with" / "to" / "with" (or "با" / "برای" in Persian); that is the fallback
+# when the base extractor returns nothing or just a command word.
+import re as _re2
+
+_RECIPIENT_BASE = globals().get("_RECIPIENT_BASE") or _recipient
+_BAD_WHO = {
+    "delete", "del", "remove", "send", "open", "message", "msg", "reply",
+    "forward", "pin", "edit", "copy", "select", "chat", "conversation",
+    "both", "sides", "حذف", "پاک", "بفرست", "باز", "پیام", "چت", "گفتگو",
+    "هر", "دو", "طرف",
+}
+_WHO_PAT = _re2.compile(
+    r"(?:chat with|message to|send to|talk to|with|to|for|"
+    r"چت با|گفتگو با|برای|به|با)\s+([^\s,،;؛]+)",
+    _re2.IGNORECASE,
+)
+
+
+def _recipient(task, payloads=()):
+    try:
+        who = _RECIPIENT_BASE(task, payloads) or ""
+    except Exception:
+        who = ""
+    if len(who.strip()) > 2 and who.strip().casefold() not in _BAD_WHO:
+        return who
+    m = _WHO_PAT.search(str(task or ""))
+    if m:
+        cand = m.group(1).strip().strip("?.!،؛:")
+        if cand and cand.casefold() not in _BAD_WHO:
+            return cand
+    return who
+
+
+# ── _recipient: pull the PERSON out of the task, not the verb ────────────────
+# MEASURED: _recipient("delete the last message in the chat with Mahak ...") gave
+# 'delete', so _open_chat tried to open a chat named "delete", none opened, and
+# the send guard then refused the whole task. The task names the person after
+# "chat with" / "to" / "with" (or "با" / "برای" in Persian); that is the fallback
+# when the base extractor returns nothing or just a command word.
+import re as _re2
+
+_RECIPIENT_BASE = globals().get("_RECIPIENT_BASE") or _recipient
+_BAD_WHO = {
+    "delete", "del", "remove", "send", "open", "message", "msg", "reply",
+    "forward", "pin", "edit", "copy", "select", "chat", "conversation",
+    "both", "sides", "حذف", "پاک", "بفرست", "باز", "پیام", "چت", "گفتگو",
+    "هر", "دو", "طرف",
+}
+_WHO_PAT = _re2.compile(
+    r"(?:chat with|message to|send to|talk to|with|to|for|"
+    r"چت با|گفتگو با|برای|به|با)\s+([^\s,،;؛]+)",
+    _re2.IGNORECASE,
+)
+
+
+def _recipient(task, payloads=()):
+    try:
+        who = _RECIPIENT_BASE(task, payloads) or ""
+    except Exception:
+        who = ""
+    if len(who.strip()) > 2 and who.strip().casefold() not in _BAD_WHO:
+        return who
+    m = _WHO_PAT.search(str(task or ""))
+    if m:
+        cand = m.group(1).strip().strip("?.!،؛:")
+        if cand and cand.casefold() not in _BAD_WHO:
+            return cand
+    return who
+
+
+# ── _recipient v2: prefer the person named after with/to/با/برای ─────────────
+# v1 still accepted the base extractor's garbage when it was merely short
+# ('اخر' from a Persian task). Now the explicit "… with X" / "… to X" cue is
+# tried FIRST across every match, stop-words are rejected, and the base
+# extractor is only a fallback. Case is preserved ('Ali', not 'ali').
+import re as _re2
+
+_RECIPIENT_BASE = globals().get("_RECIPIENT_BASE") or _recipient
+_BAD_WHO = {
+    "delete", "del", "remove", "send", "open", "message", "msg", "reply",
+    "forward", "pin", "edit", "copy", "select", "chat", "conversation",
+    "both", "sides", "the", "a", "an", "my", "your", "this", "that",
+    "last", "first", "all", "it", "me", "new",
+    "حذف", "پاک", "بفرست", "باز", "پیام", "چت", "گفتگو", "هر", "دو", "طرف",
+    "را", "در", "و", "این", "آن", "یک", "همه", "برای", "با", "به", "کن",
+}
+_WHO_PAT = _re2.compile(
+    r"(?:chat with|message to|send to|talk to|with|to|for|"
+    r"چت با|گفتگو با|برای|به|با)\s+([^\s,،;؛]+)",
+    _re2.IGNORECASE,
+)
+
+
+def _recipient(task, payloads=()):
+    text = str(task or "")
+    for m in _WHO_PAT.finditer(text):
+        cand = m.group(1).strip().strip("?.!،؛:\"'")
+        if len(cand) >= 2 and cand.casefold() not in _BAD_WHO:
+            return cand
+    try:
+        base = _RECIPIENT_BASE(task, payloads) or ""
+    except Exception:
+        base = ""
+    if len(base.strip()) >= 2 and base.strip().casefold() not in _BAD_WHO:
+        return base
+    return base
