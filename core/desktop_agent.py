@@ -1823,3 +1823,17 @@ def _recipient(task, payloads=()):
     if len(base.strip()) >= 2 and base.strip().casefold() not in _BAD_WHO:
         return base
     return base
+
+
+# ── _recipient v3: if there is no explicit name, there is no recipient ───────
+# MEASURED: 'autonomous delete last message for all' -> _recipient returned
+# 'autonomous', so the engine typed a verb into Search. Now the ONLY way to get
+# a recipient is an explicit cue (with/to/چت با/…); otherwise we return "" and
+# the caller uses the CURRENT chat - we never guess a person from a stray word.
+def _recipient(task, payloads=()):
+    text = str(task or "")
+    for m in _WHO_PAT.finditer(text):
+        cand = m.group(1).strip().strip("?.!،؛:\"'")
+        if len(cand) >= 2 and cand.casefold() not in _BAD_WHO:
+            return cand
+    return ""

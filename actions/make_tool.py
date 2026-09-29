@@ -136,3 +136,51 @@ def make_tool(parameters, player=None, session_memory=None, **kwargs):
 
 
 TOOL["handler"] = make_tool
+
+
+# ── self-repair may NEVER damage a live tool ─────────────────────────────────
+# MEASURED live: make_tool(mode='repair') generated a placeholder STUB and said
+# "I added the tool 'desktop_agent' and it is live now", and later blind
+# pyautogui.press('delete')/('enter'). So: repair is refused outright, and any
+# new plugin must pass core.plugin_guard before it is written or hot-loaded.
+_MAKE_TOOL_BASE = globals().get("_MAKE_TOOL_BASE") or make_tool
+
+
+def make_tool(parameters, player=None, session_memory=None, **kwargs):
+    p = parameters if isinstance(parameters, dict) else {}
+    if str(p.get("mode") or "").lower() == "repair":
+        return ("I will not auto-repair by rewriting a live tool - that is exactly "
+                "how a fake stub got loaded. I stopped before changing anything.")
+    if not p.get("mode"):                      # creation path: gate it
+        try:
+            from core import plugin_guard as G
+            G.validate_new_plugin(p.get("name"), p.get("source") or "",
+                                  live_names=())
+        except Exception as e:
+            return "Refused: %s" % e
+    return _MAKE_TOOL_BASE(parameters, player=player,
+                           session_memory=session_memory, **kwargs)
+
+
+# ── self-repair may NEVER damage a live tool ─────────────────────────────────
+# MEASURED live: make_tool(mode='repair') generated a placeholder STUB and said
+# "I added the tool 'desktop_agent' and it is live now", and later blind
+# pyautogui.press('delete')/('enter'). So: repair is refused outright, and any
+# new plugin must pass core.plugin_guard before it is written or hot-loaded.
+_MAKE_TOOL_BASE = globals().get("_MAKE_TOOL_BASE") or make_tool
+
+
+def make_tool(parameters, player=None, session_memory=None, **kwargs):
+    p = parameters if isinstance(parameters, dict) else {}
+    if str(p.get("mode") or "").lower() == "repair":
+        return ("I will not auto-repair by rewriting a live tool - that is exactly "
+                "how a fake stub got loaded. I stopped before changing anything.")
+    if not p.get("mode"):                      # creation path: gate it
+        try:
+            from core import plugin_guard as G
+            G.validate_new_plugin(p.get("name"), p.get("source") or "",
+                                  live_names=())
+        except Exception as e:
+            return "Refused: %s" % e
+    return _MAKE_TOOL_BASE(parameters, player=player,
+                           session_memory=session_memory, **kwargs)
