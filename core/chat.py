@@ -76,29 +76,6 @@ def name(win):
     return n
 
 
-def conv_ok(win, task, clicked=""):
-    """'' means the open conversation is acceptable; else the reason it is not.
-
-    Acceptable = it is the row just clicked, OR it is the person the task names
-    (across scripts - two spellings of one name are one person). Anything else is
-    refused, so a click on the wrong chat can never be followed by typing."""
-    if not isinstance(win, dict):
-        return "no window to check"
-    title = name(win)
-    if not title:
-        return "the open conversation has no name I can read"
-    exe = (win.get("exe") or "").lower().replace(".exe", "")
-    if exe and names.score(title, exe) > 0.9:
-        return "no conversation is open (the window is just %r)" % title
-    if clicked and names.score(clicked, title) >= 0.7:
-        return ""
-    nk, tk = names.skeleton(title), names.skeleton(task)
-    if len(nk) >= 3 and nk in tk:
-        return ""
-    if names.score(title, task) >= 0.6:
-        return ""
-    return ("the open conversation is %r, which is neither the row I clicked nor "
-            "the person in the task" % title)
 
 
 def focus_is_search():
@@ -179,55 +156,6 @@ def click(win, item, player=None):
     return True
 
 
-def open_chat(win, who, player=None):
-    """Open the conversation with `who` through the app's own Search.
-
-    True when the chat that is OPEN now really is that person. If the result list
-    is ambiguous we refuse rather than guess - a wrong recipient is worse than an
-    unfinished task."""
-    who = str(who or "").strip()
-    if not who:
-        return False
-    if not conv_ok(win, who, ""):
-        return True
-    _log(player, "opening the chat with %r through the app's own Search" % who[:28])
-    for _try in (1, 2):
-        items = wa.inventory(win)
-        box = find_search(items)
-        if box is None:
-            _log(player, "this app has no Search box I can use")
-            return False
-        if not click(win, box, player):
-            return False
-        items = wa.inventory(win)
-        box = find_search(items) or box
-        click(win, box, player)
-        try:
-            wa.hotkey("ctrl+a")
-            time.sleep(0.05)
-            wa.press("delete")
-            time.sleep(0.05)
-        except Exception:
-            pass
-        try:
-            wa.type_text(who)
-        except Exception:
-            return False
-        live.wait_change(win, timeout=1.2, since=live.revision(win))
-        live.quiet(win, 0.25, timeout=0.8)
-        items = wa.inventory(win)
-        rows = [it for it in items
-                if str(it.get("type") or "") in CONV_ROWS
-                and str(it.get("name") or "").strip()]
-        hit = names.best(who, rows, key="name", floor=0.85, margin=0.08)
-        if hit is None:
-            _log(player, "no row on screen is clearly %r - I will not guess" % who[:28])
-            continue
-        click(win, hit, player)
-        if not conv_ok(win, who, str(hit.get("name") or "")):
-            _log(player, "verified: the open chat is %r" % name(win)[:28])
-            return True
-    return not conv_ok(win, who, "")
 
 
 # ── make sure the MESSAGE actually gets said ─────────────────────────────────
@@ -342,56 +270,6 @@ def click(win, item, player=None, settle=2.5):
     return True
 
 
-def open_chat(win, who, player=None):
-    """Open the conversation with `who` through the app's own Search.
-
-    True when the chat that is OPEN now really is that person. If the result list
-    stays ambiguous we refuse - a wrong recipient is worse than an unfinished
-    task."""
-    who = str(who or "").strip()
-    if not who:
-        return False
-    if not conv_ok(win, who, ""):
-        return True
-    _log(player, "opening the chat with %r through the app's own Search" % who[:28])
-    for _try in (1, 2):
-        items = wa.inventory(win)
-        box = find_search(items)
-        if box is None:
-            _log(player, "this app has no Search box I can use")
-            return False
-        if not click(win, box, player, settle=0.7):
-            return False
-        try:
-            wa.hotkey("ctrl+a")
-            time.sleep(0.04)
-            wa.press("delete")
-        except Exception:
-            pass
-        try:
-            wa.type_text(who)
-        except Exception:
-            return False
-        hit = None
-        deadline = time.time() + 2.5
-        while time.time() < deadline:
-            live.wait_change(win, timeout=0.5, since=live.revision(win))
-            live.quiet(win, 0.15, timeout=0.4)
-            rows = [it for it in wa.inventory(win)
-                    if str(it.get("type") or "") in CONV_ROWS
-                    and str(it.get("name") or "").strip()]
-            hit = names.best(who, rows, key="name", floor=0.85, margin=0.08)
-            if hit is not None:
-                break
-        if hit is None:
-            _log(player, "no row on screen is clearly %r - I will not guess" % who[:28])
-            continue
-        click(win, hit, player, settle=1.5)
-        if not conv_ok(win, who, str(hit.get("name") or "")):
-            _log(player, "verified: the open chat is %r" % name(win)[:28])
-            return True
-        _log(player, "the open chat is still %r" % name(win)[:28])
-    return not conv_ok(win, who, "")
 
 
 # ── put text INTO a field, provably (appended last: this wins) ───────────────
@@ -400,78 +278,8 @@ def open_chat(win, who, player=None):
 # focus at all, so we try that first and then CHECK that the field really shows
 # the text - and only fall back to a real keystroke when it does not.
 
-def _type_into(win, box, text, player=None):
-    try:
-        wa.set_value_item(win, int(box.get("i")), text)
-    except Exception:
-        pass
-    live.wait_change(win, timeout=0.6, since=live.revision(win))
-    live.quiet(win, 0.12, timeout=0.4)
-    for it in wa.inventory(win):
-        if str(it.get("type") or "") in ("Edit", "ComboBox") and \
-                text.casefold() in str(it.get("value") or "").casefold():
-            _log(player, "search box holds %r" % text[:24])
-            return True
-    click(win, box, player, settle=0.5)
-    if not focus_is_search():
-        _log(player, "the search field did not take the focus")
-    try:
-        wa.hotkey("ctrl+a")
-        time.sleep(0.04)
-        wa.press("delete")
-        time.sleep(0.04)
-        wa.type_text(text)
-    except Exception:
-        return False
-    live.wait_change(win, timeout=0.8, since=live.revision(win))
-    live.quiet(win, 0.15, timeout=0.5)
-    for it in wa.inventory(win):
-        if str(it.get("type") or "") in ("Edit", "ComboBox") and \
-                text.casefold() in str(it.get("value") or "").casefold():
-            _log(player, "search box holds %r" % text[:24])
-            return True
-    _log(player, "I could not put %r into the search box" % text[:24])
-    return False
 
 
-def open_chat(win, who, player=None):
-    """Open the conversation with `who` through the app's own Search."""
-    who = str(who or "").strip()
-    if not who:
-        return False
-    if not conv_ok(win, who, ""):
-        return True
-    _log(player, "opening the chat with %r through the app's own Search" % who[:28])
-    for _try in (1, 2):
-        items = wa.inventory(win)
-        box = find_search(items)
-        if box is None:
-            _log(player, "this app has no Search box I can use")
-            return False
-        if not _type_into(win, box, who, player):
-            click(win, box, player, settle=0.5)
-            if not _type_into(win, box, who, player):
-                continue
-        hit = None
-        deadline = time.time() + 3.0
-        while time.time() < deadline:
-            live.wait_change(win, timeout=0.5, since=live.revision(win))
-            live.quiet(win, 0.15, timeout=0.4)
-            rows = [it for it in wa.inventory(win)
-                    if str(it.get("type") or "") in CONV_ROWS
-                    and str(it.get("name") or "").strip()]
-            hit = names.best(who, rows, key="name", floor=0.85, margin=0.08)
-            if hit is not None:
-                break
-        if hit is None:
-            _log(player, "no row on screen is clearly %r - I will not guess" % who[:28])
-            continue
-        click(win, hit, player, settle=1.5)
-        if not conv_ok(win, who, str(hit.get("name") or "")):
-            _log(player, "verified: the open chat is %r" % name(win)[:28])
-            return True
-        _log(player, "the open chat is still %r" % name(win)[:28])
-    return not conv_ok(win, who, "")
 
 
 # ── real typing with a guaranteed focus (appended last: this wins) ───────────
@@ -492,94 +300,8 @@ def _field_holds(win, text):
     return False
 
 
-def _type_into(win, box, text, player=None):
-    cands = [box]
-    try:
-        for it in wa.inventory(win):
-            if it is not box and str(it.get("type") or "") in ("Edit", "ComboBox") \
-                    and any(k in str(it.get("name") or "").lower() for k in SEARCH_WORDS):
-                cands.append(it)
-    except Exception:
-        pass
-    for c in cands[:3]:
-        click(win, c, player, settle=0.4)
-        if not focus_is_search():
-            try:
-                wa.set_value_item(win, int(c.get("i")), "")
-            except Exception:
-                pass
-            continue
-        try:
-            wa.hotkey("ctrl+a")
-            time.sleep(0.03)
-            wa.press("delete")
-            time.sleep(0.03)
-            wa.type_text(text)
-        except Exception:
-            continue
-        live.wait_change(win, timeout=0.8, since=live.revision(win))
-        live.quiet(win, 0.15, timeout=0.4)
-        if _field_holds(win, text):
-            _log(player, "search box holds %r" % text[:24])
-            return True
-    try:
-        wa.set_value_item(win, int(box.get("i")), text)
-        live.wait_change(win, timeout=0.6, since=live.revision(win))
-        live.quiet(win, 0.12, timeout=0.4)
-        if _field_holds(win, text):
-            _log(player, "search box holds %r (value pattern)" % text[:24])
-            return True
-    except Exception:
-        pass
-    _log(player, "I could not put %r into the search box" % text[:24])
-    return False
 
 
-def open_chat(win, who, player=None):
-    """Open the conversation with `who` through the app's own Search."""
-    who = str(who or "").strip()
-    if not who:
-        return False
-    if not conv_ok(win, who, ""):
-        return True
-    _log(player, "opening the chat with %r through the app's own Search" % who[:28])
-    for _try in (1, 2):
-        items = wa.inventory(win)
-        box = find_search(items)
-        if box is None:
-            _log(player, "this app has no Search box I can use")
-            return False
-        _type_into(win, box, who, player)
-        hit = None
-        deadline = time.time() + 4.0
-        while time.time() < deadline:
-            live.wait_change(win, timeout=0.5, since=live.revision(win))
-            live.quiet(win, 0.15, timeout=0.4)
-            rows = [it for it in wa.inventory(win)
-                    if str(it.get("type") or "") in CONV_ROWS
-                    and str(it.get("name") or "").strip()]
-            hit = names.best(who, rows, key="name", floor=0.85, margin=0.08)
-            if hit is not None:
-                break
-        if hit is None:
-            try:
-                rows = [it for it in wa.inventory(win)
-                        if str(it.get("type") or "") in CONV_ROWS
-                        and str(it.get("name") or "").strip()]
-                scored = sorted(((names.score(who, str(it.get("name") or "")), it)
-                                 for it in rows), key=lambda t: t[0], reverse=True)[:3]
-                _log(player, "closest rows: " + " | ".join(
-                    "%.2f %s" % (sc, str(it.get("name") or "")[:24]) for sc, it in scored))
-            except Exception:
-                pass
-            _log(player, "no row on screen is clearly %r - I will not guess" % who[:28])
-            continue
-        click(win, hit, player, settle=1.5)
-        if not conv_ok(win, who, str(hit.get("name") or "")):
-            _log(player, "verified: the open chat is %r" % name(win)[:28])
-            return True
-        _log(player, "the open chat is still %r" % name(win)[:28])
-    return not conv_ok(win, who, "")
 
 
 # ── pick the row that IS the person (appended last: this wins) ───────────────
@@ -685,26 +407,6 @@ def _search_fields(win, box=None):
     return fields[:2]
 
 
-def _type_into(win, box, text, player=None):
-    text = str(text or "")
-    for c in _search_fields(win, box):
-        for _attempt in (1, 2):
-            click(win, c, player, settle=0.3)
-            try:
-                wa.hotkey("ctrl+a")
-                time.sleep(0.03)
-                wa.press("delete")
-                time.sleep(0.03)
-                wa.type_text(text)
-            except Exception:
-                continue
-            live.wait_change(win, timeout=0.7, since=live.revision(win))
-            live.quiet(win, 0.10, timeout=0.35)
-            if _search_holds(win, text):
-                _log(player, "search box holds %r" % text[:24])
-                return True
-    _log(player, "I could not put %r into the search box" % text[:24])
-    return False
 
 
 # ── SPEED: short pauses, and sample the revision BEFORE acting ───────────────
@@ -724,8 +426,6 @@ def _settle(win, before, rev, hard_limit=2.5):
     return _settle_old(win, before, rev, min(hard_limit, _FAST))
 
 
-def click(win, item, player=None, settle=_FAST):
-    return _click_old(win, item, player, settle=min(settle, _FAST))
 
 
 def _type_into(win, box, text, player=None):
@@ -863,26 +563,6 @@ _COMPOSE_WORDS = tuple(dict.fromkeys(tuple(_COMPOSE_WORDS) + tuple(_apps.COMPOSE
 CONV_ROWS = tuple(dict.fromkeys(tuple(CONV_ROWS) + tuple(_apps.ROW_TYPES)))
 
 
-def conv_ok(win, who, task=""):
-    """'' if the OPEN conversation IS `who`, else a reason to refuse.
-
-    Generic across apps: first the window title (Telegram names the chat there),
-    and if the title is only the app name (WhatsApp, Discord) then the conversation
-    HEADER at the top-right. If neither can prove the recipient we refuse - never
-    guess, never send to the wrong chat.
-    """
-    who = str(who or "").strip()
-    if not who:
-        return ""
-    cur = name(win)
-    if cur and names.score(who, cur) >= 0.85:
-        return ""
-    for cand in _apps.header_names(win):
-        if names.score(who, cand) >= 0.85:
-            return ""
-    if not cur:
-        return "no conversation is open (the window is just %r)" % (win.get("name") or "")
-    return "the open conversation is %r, not %r" % (cur, who)
 
 
 # ── the engine reads its per-app knowledge from the registry, as data ─────────
