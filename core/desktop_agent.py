@@ -1900,3 +1900,10 @@ def _pick_window(app, tries=6, settle=0.5):
             last, last_hwnd = best, h
         time.sleep(settle)
     return last
+
+# Extend the reject set: the DESKTOP and TASKBAR are shell windows that cover the
+# whole screen, so "biggest match wins" picked the desktop for "Explorer". Their
+# exe (explorer.exe) is legitimate, so they must be rejected by CLASS, not exe.
+_REJECT_CLASSES = _REJECT_CLASSES | {
+    "Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd",
+}
