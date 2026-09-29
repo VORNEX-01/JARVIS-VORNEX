@@ -91,7 +91,10 @@ for self-extension.
 - A Gemini API key
 - A microphone
 
+<p align="center">Made by VORNEX</p>
+
 ---
+
 
 <a id="persian"></a>
 
@@ -178,5 +181,10 @@ PROFILES = {
 
 ---
 
-<p align="center">Made by VORNEX</p>
+<p align="center">
+  <a href="https://instagram.com/vornex_web">Instagram</a> ·
+  <a href="https://t.me/VORNEX_01">Telegram</a>
+</p>
+
 <p align="center" dir="rtl">ساخته شده توسط ورنکس</p>
+
