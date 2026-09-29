@@ -1262,3 +1262,51 @@ def _force_foreground(win, tries=12):
             return True
         _t.sleep(0.15)
     return _is_fg(hwnd)
+
+
+# ── keys must KEEP their spaces ──────────────────────────────────────────────
+# MEASURED: _send_keys(w, "Hello VORNEX 123") wrote "HelloVORNEX123" into the file
+# - pywinauto's send_keys drops spaces unless with_spaces=True, and tabs/newlines
+# unless with_tabs/with_newlines are given. Any sentence typed through this path
+# (a file name with spaces, a search phrase, a message) was silently mangled.
+def _send_keys(win, keys, focus=True):
+    if focus:
+        _focus(win)
+        time.sleep(0.25)
+    try:
+        _send_keys_raw(str(keys), pause=0.05,
+                       with_spaces=True, with_tabs=True, with_newlines=True)
+        return True
+    except Exception:
+        return False
+
+
+# ── v7: a save must contain what was asked - never trust size alone ─────────
+# An empty document legitimately saves as 0 bytes, but the same "exists+changed"
+# check would pass a 0-byte file when the user DID write text. So save_as accepts
+# `expect`; the file is read back and must contain it (Unicode-NFKC, whitespace
+# collapsed). The base handler is captured ONCE via globals() so appending this
+# block a second time can never make the wrapper call itself.
+_SAVE_AS_BASE = globals().get("_SAVE_AS_BASE") or _save_as_v2
+
+
+def _save_as_v2(p):
+    out = _SAVE_AS_BASE(p)
+    want = str((p or {}).get("expect") or (p or {}).get("expect_text") or "").strip()
+    if not want or "now exists" not in out:
+        return out
+    dest = _desktop_path(str((p or {}).get("text") or (p or {}).get("name") or ""))
+    try:
+        with open(dest, "r", encoding="utf-8", errors="ignore") as f:
+            body = f.read()
+    except Exception:
+        return out + " (I could not read it back to confirm its contents.)"
+
+    def _norm(s):
+        import unicodedata as _ud
+        return " ".join(_ud.normalize("NFKC", str(s)).split()).casefold()
+
+    if _norm(want) in _norm(body):
+        return out + " Its contents match what you asked to write."
+    return ("I saved %s but its contents do not contain %r, so I will NOT claim the "
+            "text was saved correctly." % (dest, want[:60]))
