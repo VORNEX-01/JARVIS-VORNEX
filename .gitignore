@@ -62,3 +62,7 @@ __pycache__/
 _*.txt
 *.broken
 tools/_shots/
+memory/learned_tools.json
+plugins/*.py
+!plugins/_template.py
+!plugins/__init__.py
