@@ -61,21 +61,6 @@ def skeleton(s) -> str:
     return "".join(c for c in n if c not in _VOWELS)
 
 
-def score(a, b) -> float:
-    na, nb = norm(a), norm(b)
-    if not na or not nb:
-        return 0.0
-    if na == nb:
-        return 1.0
-    ka, kb = skeleton(a), skeleton(b)
-    if ka and len(ka) >= 3 and ka == kb:
-        return 0.97
-    if len(ka) >= 3 and len(kb) >= 3 and (ka in kb or kb in ka):
-        return 0.9
-    r1 = difflib.SequenceMatcher(None, na, nb).ratio()
-    r2 = difflib.SequenceMatcher(None, ka or na, kb or nb).ratio()
-    r3 = 0.85 if (na in nb or nb in na) else 0.0
-    return max(r1, r2, r3)
 
 
 def best(query, cands, key=None, floor=0.72, margin=0.06):
@@ -108,24 +93,6 @@ def lead(s, maxlen=60):
     return (t or str(s or "").strip())[:maxlen]
 
 
-def score(a, b):
-    na, nb = norm(a), norm(b)
-    if not na or not nb:
-        return 0.0
-    if na == nb:
-        return 1.0
-    ka, kb = skeleton(a), skeleton(b)
-    if ka and len(ka) >= 3 and ka == kb:
-        return 0.97
-    if len(ka) >= 3 and len(kb) >= 3 and (ka in kb or kb in ka):
-        extra = abs(len(kb) - len(ka))
-        return max(0.50, 0.92 - 0.05 * extra)
-    r1 = difflib.SequenceMatcher(None, na, nb).ratio()
-    r2 = difflib.SequenceMatcher(None, ka or na, kb or nb).ratio()
-    r3 = 0.0
-    if (na in nb or nb in na) and abs(len(na) - len(nb)) <= max(3, len(na) // 2):
-        r3 = 0.85
-    return max(r1, r2, r3)
 
 
 # ── name matching v2: Persian vowels are optional, Latin vowels are a control ─
