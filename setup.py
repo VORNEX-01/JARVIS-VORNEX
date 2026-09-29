@@ -66,14 +66,42 @@ def _check_assets() -> None:
         )
 
 
+# ── PyPI mirrors: pypi.org is not reachable from every network (notably Iran).
+# The default index is tried first; on failure we retry through public mirrors
+# so a fresh clone can still install on a restricted connection.
+_MIRRORS = [
+    ("https://mirror-pypi.runflare.com/simple", "mirror-pypi.runflare.com"),
+    ("https://pypi.tuna.tsinghua.edu.cn/simple", None),
+    ("https://mirrors.aliyun.com/pypi/simple/", None),
+]
+
+
+def _install_requirements() -> None:
+    base = [sys.executable, "-m", "pip", "install", "-r", "requirements.txt"]
+    try:
+        _run("Installing Python dependencies (OS-specific extras auto-filtered)…", base)
+        return
+    except subprocess.CalledProcessError:
+        print("\n⚠️  Default PyPI unreachable — retrying through mirrors…")
+    for url, host in _MIRRORS:
+        cmd = base + ["-i", url]
+        if host:
+            cmd += ["--trusted-host", host]
+        try:
+            _run(f"Installing via mirror: {url}", cmd)
+            return
+        except subprocess.CalledProcessError:
+            print(f"   mirror failed: {url}")
+    raise SystemExit("\n❌ Could not install dependencies from any index.")
+
+
 def main() -> None:
     print(f"⚙  VORNEX setup — detected OS: {OS or 'unknown'}, "
           f"Python {sys.version_info[0]}.{sys.version_info[1]}")
     _check_python()
 
     # requirements.txt filters OS-specific extras by itself via pip markers.
-    _run("Installing Python dependencies (OS-specific extras auto-filtered)…",
-         [sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
+    _install_requirements()
 
     # Chromium covers Chrome/Edge/Opera/Brave/Vivaldi; Firefox for Firefox.
     # (Safari automation additionally needs: python -m playwright install webkit)
