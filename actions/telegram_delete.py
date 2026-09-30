@@ -77,9 +77,17 @@ def _anchor(win):
     return mid + (r[2] - mid) // 2, r[3] - 170
 
 
+def _esc():
+    u = ctypes.windll.user32
+    u.keybd_event(0x1B, 0, 0, 0); u.keybd_event(0x1B, 0, 2, 0)
+
+
 def _find(labels):
     for lb in labels:
-        pos = E.find_text(lb)
+        try:
+            pos = E.find_text(lb)
+        except Exception:
+            pos = None
         if pos:
             return pos, lb
     return None, ""
@@ -116,6 +124,14 @@ def delete_last_message(chat="", player=None) -> str:
     if not win:
         return "I could not find the Telegram window."
     U._force_foreground(win); E.start_auto()
+    try:
+        if not E._proxy_alive():
+            h, pt = E._proxy_addr()
+            return ("I cannot delete anything right now: the vision proxy %s:%d is "
+                    "down, and the menu can only be read with the eye. Start it and "
+                    "ask again." % (h, pt))
+    except Exception:
+        pass
 
     who = str(chat or da._chat_name(win) or "").strip()
     item = _row_item(win, who) if who else None
@@ -211,3 +227,36 @@ def telegram_delete(parameters, player=None, session_memory=None) -> str:
 
 def run(parameters, player=None, session_memory=None):
     return telegram_delete(parameters, player=player, session_memory=session_memory)
+
+# ── tool registration: deleting is irreversible, so the HUD gate is the
+#    interface's, never the model's (core/confirm.request) ────────────────────
+def _handler(parameters=None, player=None, session_memory=None):
+    p = parameters if isinstance(parameters, dict) else {}
+    who = str(p.get("chat") or p.get("receiver") or p.get("name") or "").strip()
+    try:
+        from core import confirm
+        return confirm.request(
+            key="telegram_delete",
+            title="Delete the last message in %s?" % (who or "the open chat"),
+            detail="Both sides - also from the other person's Telegram.",
+            run=lambda: delete_last_message(who, player=player))
+    except Exception:
+        return delete_last_message(who, player=player)
+
+
+TOOL = {
+    "name": "telegram_delete",
+    "description": ("Delete the LAST message of a Telegram chat for both sides. "
+                    "Reads the right-click menu and dialog with the eye and only "
+                    "claims success if the chat preview really changes."),
+    "parameters": {
+        "type": "OBJECT",
+        "properties": {
+            "chat": {"type": "STRING",
+                     "description": "Contact/chat name, e.g. 'Mahak'. Empty = the open chat."},
+        },
+        "required": [],
+    },
+    "handler": _handler,
+    "scheduling": "INTERRUPT",
+}

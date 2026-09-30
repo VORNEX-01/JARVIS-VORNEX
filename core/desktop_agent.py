@@ -1855,3 +1855,30 @@ def _conv_ok(win, task, name=""):
     if any(m in str(name).casefold() for m in _MSG_ROW_MARKERS):
         return _CONV_OK_PREV(win, task, "")
     return _CONV_OK_PREV(win, task, _row_name(name))
+
+
+# ── fast path: a Telegram MESSAGE delete goes to the PROVEN flow ─────────────
+# MEASURED live: the task wandered through the planner (searched 'autonomous',
+# clicked message rows, asked for confirmations) because a Telegram delete was
+# routed through desktop_agent/app_explorer. The exact flow is proven end to end
+# in actions/telegram_delete.py (right chat -> menu -> dialog -> tick state read
+# -> verified preview change), so such a task goes STRAIGHT there.
+_TG_PREV = globals().get("_TG_PREV") or run_task
+_TG_DEL_WORDS = ("delete", "remove", "حذف", "پاک")
+_TG_MSG_WORDS = ("message", "msg", "پیام")
+
+
+def run_task(task, app="", details="", player=None):
+    t = str(task or "").casefold()
+    a = str(app or "").casefold()
+    if ("telegram" in (t + " " + a) or "تلگرام" in t) \
+            and any(w in t for w in _TG_DEL_WORDS) \
+            and any(w in t for w in _TG_MSG_WORDS):
+        try:
+            from actions import telegram_delete as TD
+            win = _pick_window("Telegram", tries=4) or {}
+            who = _recipient(task) or _chat_name(win) or ""
+            return TD.delete_last_message(who, player=player)
+        except Exception as e:
+            return "The Telegram delete could not run: %s" % e
+    return _TG_PREV(task, app=app, details=details, player=player)
