@@ -120,8 +120,8 @@ class WakeWordDetector:
         self._on_detect = on_detect
         self._threshold = threshold
         self._logger    = logger
-        # See PluginRegistry: `logger` is the console and gets everything,
-        # `notify` is the activity log and gets only what the user must act on.
+        # `logger` receives diagnostic output; `notify` receives
+        # user-facing activity that requires attention.
         self._notify    = notify or (lambda _msg: None)
         self._queue: queue.Queue = queue.Queue(maxsize=50)
         self._thread: threading.Thread | None = None
