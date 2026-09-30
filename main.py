@@ -1792,6 +1792,7 @@ class JarvisLive:
         if self._turn_done_event:
             self._turn_done_event.clear()
 
+        await asyncio.sleep(3.0)
         await self.session.send_client_content(
             turns={"role": "user", "parts": [{"text": p1}]},
             turn_complete=True,
