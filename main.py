@@ -1297,7 +1297,7 @@ class JarvisLive:
             await self.session.send_realtime_input(
                 audio=types.Blob(
                     data=msg["data"],
-                    mime_type=msg.get("mime_type", "audio/pcm"),
+                    mime_type="audio/pcm;rate=16000",
                 )
             )
 
