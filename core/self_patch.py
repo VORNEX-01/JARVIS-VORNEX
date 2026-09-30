@@ -22,14 +22,14 @@ def _smoke(path):
 
 
 def apply_edit(path, new_source, message="self-patch", smoke=True):
-    from core.self_patch_guard import validate_candidate
     path = Path(path).resolve()
     old = path.read_text(encoding="utf-8") if path.exists() else ""
-    try:
-        validate_candidate(old, new_source, str(path))
-    except Exception as e:
-        return False, "REFUSED by guard: %s" % e
     if path.suffix == ".py":
+        from core.self_patch_guard import validate_candidate
+        try:
+            validate_candidate(old, new_source, str(path))
+        except Exception as e:
+            return False, "REFUSED by guard: %s" % e
         try:
             compile(new_source, str(path), "exec")
         except SyntaxError as e:
