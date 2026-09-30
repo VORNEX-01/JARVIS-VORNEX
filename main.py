@@ -1501,6 +1501,17 @@ class JarvisLive:
                     if response.server_content:
                         sc = response.server_content
 
+                        # fallback: gemini-3.1 puts text in model_turn.parts
+                        if not sc.output_transcription:
+                            mt = getattr(sc, "model_turn", None)
+                            if mt and getattr(mt, "parts", None):
+                                for _p in mt.parts:
+                                    _t = getattr(_p, "text", None)
+                                    if _t:
+                                        txt = _clean_transcript(_t)
+                                        if txt and not _is_repeat_chunk(txt, out_buf):
+                                            out_buf.append(txt)
+                                            self._visemes.feed_text(txt)
                         if sc.output_transcription and sc.output_transcription.text:
                             txt = _clean_transcript(sc.output_transcription.text)
                             # A turn that involves a tool call passes through
