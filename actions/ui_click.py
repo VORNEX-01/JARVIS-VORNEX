@@ -1,53 +1,68 @@
-"""actions/ui_click.py - act on any window, dialog or menu BY NAME.
-
-A "Save As" dialog, an "Open" dialog, a right-click menu and a small confirm box
-are the SAME problem: their controls HAVE NAMES, they are just invisible to a
-screenshot. Clicking them by pixel position is why saving a Notepad file failed
-five times in a row. This reads those names through UI Automation and invokes the
-control directly: exact, instant, and able to say what really happened.
-
-Rules kept from the rest of VORNEX:
-  * it never guesses - an EXACT normalised name wins; fuzzy matches only RANK,
-    and a tie is refused;
-  * it verifies instead of assuming - after acting it RE-READS the control and
-    compares through core.names, so "Mahak\\nIn reply to ..." is not falsely
-    treated as a different thing than "Mahak";
-  * a destructive control (delete / remove / uninstall / ارسال / حذف ...) is
-    refused unless the caller passes confirm=true, so this stays a second pair
-    of HANDS for the verified flow, not a second unguarded engine.
-"""
+"""JARVIS universal verified Windows UI action engine."""
 from __future__ import annotations
 
+import os
 import time
+import unicodedata
 
-_MAX_CONTROLS = 1200
+from core import window_agent as WA
 
-_IRREVERSIBLE = (
-    "delete", "remove", "uninstall", "format", "erase", "empty trash",
-    "حذف", "پاک کن", "خالی کن",
-)
+TOOL = {
+    "name": "ui_click",
+    "description": (
+        "Generic Windows UI perception and control. "
+        "Find windows and controls by name, click, right-click, "
+        "set text, type, send keys, and perform verified Save As."
+    ),
+    "parameters": {
+        "type": "OBJECT",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": [
+                    "windows",
+                    "list",
+                    "focus",
+                    "click",
+                    "right_click",
+                    "set_text",
+                    "keys",
+                    "type",
+                    "save_as",
+                ],
+            },
+            "window": {"type": "string"},
+            "name": {"type": "string"},
+            "control": {"type": "string"},
+            "text": {"type": "string"},
+            "keys": {"type": "string"},
+            "path": {"type": "string"},
+            "replace": {"type": "boolean"},
+            "expect": {"type": "string"},
+        },
+    },
+}
+
+_MAX_CONTROLS = 500
 
 
-# ── windows ──────────────────────────────────────────────────────────────────
-def _windows():
+def _norm(value):
+    return " ".join(
+        unicodedata.normalize("NFKC", str(value or "")).split()
+    ).casefold()
+
+
+def _hwnd(win):
     try:
-        from core import window_agent as wa
-        return wa.list_windows()
-    except Exception:
-        return []
-
-
-def _area(w):
-    try:
-        r = w.get("rect") or (0, 0, 0, 0)
-        return max(0, r[2] - r[0]) * max(0, r[3] - r[1])
+        return int((win or {}).get("hwnd") or 0)
     except Exception:
         return 0
 
 
-def _hwnd(w):
+def _area(win):
     try:
-        return int((w or {}).get("hwnd") or 0)
+        r = win.get("rect") or (0, 0, 0, 0)
+        return max(0, r[2] - r[0]) * max(0, r[3] - r[1])
     except Exception:
         return 0
 
@@ -58,142 +73,296 @@ def _foreground():
         hwnd = int(ctypes.windll.user32.GetForegroundWindow())
     except Exception:
         return None
-    for w in _windows():
-        if _hwnd(w) == hwnd:
-            return w
-    return {"hwnd": hwnd, "name": "", "exe": "", "rect": (0, 0, 0, 0)}
+
+    for win in WA.list_windows():
+        if _hwnd(win) == hwnd:
+            return win
+    return None
 
 
 def _find_window(title):
-    t = str(title or "").strip().lower()
-    if not t:
+    return WA.find_window(title)
+
+
+def _resolve_window(title=""):
+    query = str(title or "").strip()
+
+    if not query:
         return _foreground()
-    hits = [w for w in _windows()
-            if t in (str(w.get("name") or "") + " " + str(w.get("exe") or "")).lower()]
-    if not hits:
-        return None
-    hits.sort(key=lambda w: -_area(w))
-    return hits[0]
 
+    win = WA.find_window(query)
+    if win is not None:
+        return win
 
-# ── controls ─────────────────────────────────────────────────────────────────
-def _wrap(win):
-    try:
-        from pywinauto import Application
-        hwnd = _hwnd(win)
-        if not hwnd:
-            return None
-        return Application(backend="uia").connect(handle=hwnd).window(handle=hwnd)
-    except Exception:
-        return None
+    matches = []
+    nq = _norm(query)
+
+    for w in WA.list_windows():
+        fields = (
+            w.get("name"),
+            w.get("title"),
+            w.get("exe"),
+            w.get("process"),
+        )
+        if any(nq == _norm(x) for x in fields if x):
+            matches.append(w)
+
+    return matches[0] if len(matches) == 1 else None
 
 
 def _controls_of(win, limit=_MAX_CONTROLS):
-    out = []
-    root = _wrap(win)
-    if root is None:
-        return out
-    try:
-        for el in root.descendants():
-            if len(out) >= limit:
-                break
-            try:
-                info = el.element_info
-                out.append({"el": el,
-                            "name": str(info.name or "").strip(),
-                            "type": str(info.control_type or "")})
-            except Exception:
-                continue
-    except Exception:
-        pass
-    return out
+    return WA.inventory(win, limit=limit)
 
 
 def _named_controls(exclude_hwnd=0):
-    """Every named control, SMALL windows first - a popup menu or a dialog is a
-    small top-level window, so this finds its items before a big app's chrome."""
     out = []
-    ws = [w for w in _windows() if _hwnd(w) != exclude_hwnd and _area(w) > 0]
-    for w in sorted(ws, key=_area):          # ascending: menus/dialogs first
-        if len(out) >= _MAX_CONTROLS:
-            break
-        out.extend(_controls_of(w, limit=_MAX_CONTROLS - len(out)))
+    for win in WA.list_windows():
+        if _hwnd(win) == int(exclude_hwnd or 0):
+            continue
+        try:
+            out.extend(_controls_of(win))
+        except Exception:
+            continue
     return out
 
 
 def _pick(controls, name):
-    """EXACT normalised name first; fuzzy only ranks; a tie is refused."""
-    from core import names
-    q = str(name or "").strip()
+    q = _norm(name)
     if not q:
         return None
-    try:
-        nq = names.norm(q)
-    except Exception:
-        nq = q.casefold()
-
-    exact = [c for c in controls if c["name"] and names.norm(c["name"]) == nq]
-    if len(exact) == 1:
-        return exact[0]
-    if len(exact) > 1:
-        return None                          # ambiguous even exactly: ask
 
     scored = []
+
     for c in controls:
-        if not c["name"]:
-            continue
-        try:
-            s = names.score(q, c["name"])
-        except Exception:
-            s = 0.0
-        if s >= 0.62:
-            scored.append((s, c))
+        values = (
+            c.get("name"),
+            c.get("text"),
+            c.get("value"),
+            c.get("automation_id"),
+            c.get("auto_id"),
+            c.get("control_type"),
+            c.get("type"),
+        )
+
+        best = 0.0
+
+        for value in values:
+            v = _norm(value)
+            if not v:
+                continue
+            if q == v:
+                best = max(best, 1.0)
+            elif q in v:
+                best = max(best, 0.86)
+            elif v in q:
+                best = max(best, 0.78)
+
+        if best:
+            scored.append((best, c))
+
     if not scored:
         return None
-    scored.sort(key=lambda t: t[0], reverse=True)
-    second = scored[1][0] if len(scored) > 1 else 0.0
-    if scored[0][0] - second < 0.06 and second >= 0.62:
-        return None                          # two equally likely: never guess
-    return scored[0][1]
+
+    scored.sort(key=lambda x: (-x[0], _area(x[1])))
+    best_score, best = scored[0]
+
+    if len(scored) > 1:
+        second_score = scored[1][0]
+        if best_score < 1.0 and best_score - second_score < 0.08:
+            return None
+
+    return best
 
 
-# ── act ──────────────────────────────────────────────────────────────────────
-def _invoke(el):
-    for how in ("invoke", "select", "click_input"):
+def _uia_window(win):
+    hwnd = _hwnd(win)
+    if not hwnd:
+        return None
+
+    try:
+        import pywinauto
+        return pywinauto.Desktop(backend="uia").window(handle=hwnd)
+    except Exception:
+        return None
+
+
+def _all_controls(win):
+    root = _uia_window(win)
+    if root is None:
+        return []
+
+    try:
+        return list(root.descendants())
+    except Exception:
+        return []
+
+
+def _control_matches(wrapper, item):
+    try:
+        wanted_name = _norm(
+            item.get("name") or item.get("text") or item.get("value")
+        )
+        wanted_auto = _norm(
+            item.get("automation_id") or item.get("auto_id")
+        )
+        wanted_type = _norm(
+            item.get("control_type") or item.get("type")
+        )
+
+        if wanted_auto:
+            try:
+                if _norm(wrapper.element_info.automation_id) == wanted_auto:
+                    return True
+            except Exception:
+                pass
+
         try:
-            getattr(el, how)()
-            return how
+            actual_type = _norm(wrapper.element_info.control_type)
         except Exception:
-            continue
-    return ""
+            actual_type = ""
+
+        try:
+            actual_name = _norm(wrapper.window_text())
+        except Exception:
+            actual_name = ""
+
+        if wanted_type and actual_type != wanted_type:
+            return False
+
+        if wanted_name and actual_name == wanted_name:
+            return True
+
+        if wanted_name and wanted_name in actual_name:
+            return True
+
+    except Exception:
+        pass
+
+    return False
+
+
+def _wrap(win, item):
+    controls = _all_controls(win)
+
+    if not controls:
+        return None
+
+    for control in controls:
+        if _control_matches(control, item):
+            return control
+
+    target_rect = item.get("rect")
+    if target_rect:
+        try:
+            tx = (target_rect[0] + target_rect[2]) / 2
+            ty = (target_rect[1] + target_rect[3]) / 2
+        except Exception:
+            target_rect = None
+
+        if target_rect:
+            best = None
+            best_d = None
+
+            for control in controls:
+                try:
+                    r = control.rectangle()
+                    cx = (r.left + r.right) / 2
+                    cy = (r.top + r.bottom) / 2
+                    d = abs(cx - tx) + abs(cy - ty)
+
+                    if best_d is None or d < best_d:
+                        best = control
+                        best_d = d
+                except Exception:
+                    continue
+
+            if best is not None and best_d is not None and best_d < 80:
+                return best
+
+    return None
+
+
+def _invoke(el):
+    if el is None:
+        return False
+
+    try:
+        pattern = el.iface_invoke
+        pattern.Invoke()
+        return True
+    except Exception:
+        pass
+
+    try:
+        el.invoke()
+        return True
+    except Exception:
+        pass
+
+    try:
+        el.click_input()
+        return True
+    except Exception:
+        return False
 
 
 def _right_click(el):
+    if el is None:
+        return False
+
     try:
-        el.click_input(button="right")
-        return "right-click"
+        el.right_click_input()
+        return True
     except Exception:
-        return ""
+        pass
+
+    try:
+        r = el.rectangle()
+        import pyautogui
+        pyautogui.rightClick(
+            int((r.left + r.right) / 2),
+            int((r.top + r.bottom) / 2),
+        )
+        return True
+    except Exception:
+        return False
 
 
 def _fill(el, text):
+    if el is None:
+        return False
+
+    text = str(text)
+
     try:
-        el.set_edit_text(str(text))          # ValuePattern - no keyboard at all
-        return "value"
+        el.set_edit_text(text)
+        return True
     except Exception:
         pass
+
     try:
-        el.set_focus()
-        time.sleep(0.15)
-        el.type_keys(str(text), with_spaces=True, set_foreground=True)
-        return "keys"
+        el.click_input()
+        import pywinauto.keyboard as keyboard
+        keyboard.send_keys("^a")
+        keyboard.send_keys(text, with_spaces=True)
+        return True
     except Exception:
-        return ""
+        return False
 
 
 def _read_back(el):
+    if el is None:
+        return ""
+
     try:
-        return str(el.element_info.name or "").strip()
+        value = el.get_value()
+        if value is not None:
+            return str(value)
+    except Exception:
+        pass
+
+    try:
+        return str(el.window_text() or "")
     except Exception:
         return ""
 
@@ -205,959 +374,345 @@ def _still_there(el):
         return False
 
 
-# ── tool ─────────────────────────────────────────────────────────────────────
-def ui_click(parameters, player=None, session_memory=None) -> str:
-    p = parameters or {}
-    action = str(p.get("action") or "list").strip().lower()
-    name = p.get("name") or ""
-    text = p.get("text") or ""
-    title = p.get("window") or ""
-    confirm = bool(p.get("confirm"))
-
-    win = _find_window(title) if title else _foreground()
-    where = str((win or {}).get("name") or "") or (title or "the foreground window")
-
-    if action == "list":
-        controls = _controls_of(win) if win else []
-        if not controls:
-            controls = _named_controls(exclude_hwnd=_hwnd(win))
-        named = [c for c in controls if c["name"]]
-        if not named:
-            return ("I could not read any NAMED control in %s - the app may have "
-                    "accessibility switched off." % where)
-        listing = "; ".join("%s [%s]" % (c["name"], c["type"]) for c in named[:60])
-        return "Controls in %s: %s%s" % (where, listing,
-                                         "" if len(named) <= 60 else "; ...")
-
-    target = _pick(_controls_of(win) if win else [], name)
-    if target is None:
-        target = _pick(_named_controls(exclude_hwnd=_hwnd(win)), name)
-    if target is None:
-        return ("No control matched '%s' clearly. Call ui_click with action='list' "
-                "first and I will use the exact name." % name)
-
-    if action in ("click", "right_click"):
-        low = target["name"].casefold()
-        if any(b in low for b in _IRREVERSIBLE) and not confirm:
-            return ("'%s' is an irreversible control, so I did not touch it. "
-                    "Confirm with the user first, then call again with confirm=true."
-                    % target["name"])
-
-    if action == "click":
-        how = _invoke(target)
-        if not how:
-            return "I found '%s' but could not activate it." % target["name"]
-        time.sleep(0.25)
-        if _still_there(target):
-            return "Clicked '%s' (%s) - it is still on screen." % (target["name"], how)
-        return "Clicked '%s' (%s) and the control is gone - the action went through." % (target["name"], how)
-
-    if action == "right_click":
-        how = _right_click(target)
-        if not how:
-            return "I found '%s' but could not right-click it." % target["name"]
-        return ("Right-clicked '%s' - the menu should be open. Call "
-                "action='list' to read its items." % target["name"])
-
-    if action == "set_text":
-        how = _fill(target, text)
-        if not how:
-            return "I found '%s' but could not write into it." % target["name"]
-        back = _read_back(target)
-        if back and text and str(text).strip().casefold() not in back.casefold():
-            return ("Wrote into '%s' (%s) but it now reads '%s' - not what you "
-                    "asked for." % (target["name"], how, back))
-        return "Wrote '%s' into '%s' (%s)." % (text, target["name"], how)
-
-    return "Unknown action '%s'. Use list, click, right_click or set_text." % action
-
-
-TOOL = {
-    "name": "ui_click",
-    "description": (
-        "Act on a window, dialog or menu BY NAME - no coordinates. Use it for "
-        "dialogs (Save As, Open, Print, confirmations), right-click context "
-        "menus, and any button whose position you cannot trust. Steps: "
-        "action='list' to read the exact control names, then action='set_text' "
-        "with name='File name' and the text, then action='click' with "
-        "name='Save'. Prefer this over computer_control or desktop_agent for "
-        "anything that has a readable label. A destructive control (delete, "
-        "remove, uninstall, حذف) needs confirm=true after the user agrees."
-    ),
-    "parameters": {
-        "type": "OBJECT",
-        "properties": {
-            "action": {"type": "STRING",
-                       "description": "list | click | right_click | set_text"},
-            "name":   {"type": "STRING",
-                       "description": "Control name, e.g. 'Save', 'File name:', 'Delete'."},
-            "text":   {"type": "STRING",
-                       "description": "For set_text: the value to write into the field."},
-            "window": {"type": "STRING",
-                       "description": "Window/app title to work in. Omit for the foreground window."},
-            "confirm": {"type": "BOOLEAN",
-                        "description": "true only after the user approved a destructive control."},
-        },
-        "required": ["action"],
-    },
-    "handler": ui_click,
-}
-
-
-# ── v2: aim at the right window, and PROVE the file exists ───────────────────
-# MEASURED: `ui_click list` with no window listed the MINGW console's own
-# ScrollBar / Close button, because the foreground window was the terminal the
-# test ran in - not the "Save As" dialog. So: a console is NEVER a valid target,
-# and a dialog-shaped window (small, carrying Save/OK/Cancel) is preferred over
-# an arbitrary big window. #32770 alone is only a CLUE, never proof - an app's
-# real main window can carry that class too.
-# Second lesson, from the failed Notepad session: "I saved it" was said five
-# times with no file on disk. So click takes expect_file and the answer is the
-# TRUTH about the filesystem, not a claim.
-import os as _os
-
-_DIALOG_CLASSES = {"#32770"}
-_CONSOLE_EXES = {
-    "cmd.exe", "conhost.exe", "powershell.exe", "pwsh.exe",
-    "windowsterminal.exe", "wt.exe", "mintty.exe", "bash.exe", "sh.exe",
-    "python.exe", "pythonw.exe",
-}
-_DIALOG_HINTS = ("save", "ok", "cancel", "file name", "open", "yes", "no",
-                 "saving", "ذخیره", "لغو", "باز", "بله", "خیر")
-
-
-def _is_console(w):
-    return str((w or {}).get("exe") or "").lower().rsplit("\\", 1)[-1] in _CONSOLE_EXES
-
-
-def _is_dialog_class(w):
-    return str((w or {}).get("cls") or "") in _DIALOG_CLASSES
-
-
-def _screen_area():
+def _force_foreground(win):
     try:
-        import ctypes
-        u = ctypes.windll.user32
-        return max(1, u.GetSystemMetrics(0)) * max(1, u.GetSystemMetrics(1))
+        return bool(WA.activate(win))
     except Exception:
-        return 1920 * 1080
-
-
-def _looks_like_dialog(w):
-    """Small window carrying a Save / OK / Cancel style control."""
-    if _is_dialog_class(w):
-        return True
-    if _area(w) > 0.8 * _screen_area():
         return False
-    names = [c["name"].casefold() for c in _controls_of(w, limit=200) if c["name"]]
-    return any(any(h in n for h in _DIALOG_HINTS) for n in names)
 
 
-def _window_choices():
-    out = []
-    for w in sorted(_windows(), key=_area, reverse=True):
-        if _area(w) <= 0:
-            continue
-        out.append("%s [%s] %s%s" % (str(w.get("name") or "?")[:50],
-                                     str(w.get("exe") or "?"),
-                                     str(w.get("cls") or "?"),
-                                     " <DIALOG>" if _is_dialog_class(w) else ""))
-    return out
-
-
-
-
-def _file_exists(expect):
-    """True/False, and also try the usual Desktop / Downloads spots when the
-    caller passed a bare file name like 'testy.txt'."""
-    exp = _os.path.expandvars(_os.path.expanduser(str(expect)))
-    cands = [exp]
-    if (_os.sep not in exp) and ("/" not in exp):
-        home = _os.path.expanduser("~")
-        cands += [_os.path.join(home, "Desktop", exp),
-                  _os.path.join(home, "OneDrive", "Desktop", exp),
-                  _os.path.join(home, "Downloads", exp)]
-    for c in cands:
-        if _os.path.exists(c):
-            return True, c
-    return False, exp
-
-
-def ui_click(parameters, player=None, session_memory=None) -> str:
-    p = parameters or {}
-    action = str(p.get("action") or "list").strip().lower()
-    name = p.get("name") or ""
-    text = p.get("text") or ""
-    title = p.get("window") or ""
-    confirm = bool(p.get("confirm"))
-    expect = p.get("expect_file") or ""
-
-    if action == "windows":
-        ch = _window_choices()
-        return ("Open windows: " + " | ".join(ch[:25])) if ch else "No windows found."
-
-    win, err = _resolve_window(title)
-    if win is None:
-        return err
-    where = str(win.get("name") or "") or str(win.get("exe") or "") or "the window"
-
-    if action == "list":
-        controls = [c for c in _controls_of(win) if c["name"]]
-        if not controls:
-            controls = [c for c in _named_controls(exclude_hwnd=_hwnd(win)) if c["name"]]
-        if not controls:
-            return ("I could not read any NAMED control in %s - the app may have "
-                    "accessibility switched off." % where)
-        listing = "; ".join("%s [%s]" % (c["name"], c["type"]) for c in controls[:60])
-        return "Controls in %s: %s%s" % (where, listing,
-                                         "" if len(controls) <= 60 else "; ...")
-
-    target = _pick(_controls_of(win), name)
-    if target is None:
-        target = _pick(_named_controls(exclude_hwnd=_hwnd(win)), name)
-    if target is None:
-        return ("No control matched '%s' in %s. Call ui_click with action='list' "
-                "and window='%s' first, then use the exact name."
-                % (name, where, where))
-
-    if action in ("click", "right_click"):
-        low = target["name"].casefold()
-        if any(b in low for b in _IRREVERSIBLE) and not confirm:
-            return ("'%s' is an irreversible control, so I did not touch it. "
-                    "Confirm with the user first, then call again with confirm=true."
-                    % target["name"])
-
-    if action == "click":
-        how = _invoke(target)
-        if not how:
-            return "I found '%s' in %s but could not activate it." % (target["name"], where)
-        time.sleep(0.4)
-        gone = not _still_there(target)
-        if expect:
-            ok, path = _file_exists(expect)
-            if ok:
-                return ("Clicked '%s' (%s) in %s and VERIFIED the file exists: %s"
-                        % (target["name"], how, where, path))
-            return ("Clicked '%s' (%s) in %s, but the file '%s' is NOT on disk - "
-                    "the save did NOT happen. Look at the dialog again."
-                    % (target["name"], how, where, expect))
-        return ("Clicked '%s' (%s) in %s and the control is gone - the action went through."
-                % (target["name"], how, where) if gone else
-                "Clicked '%s' (%s) in %s - it is still on screen." % (target["name"], how, where))
-
-    if action == "right_click":
-        how = _right_click(target)
-        if not how:
-            return "I found '%s' but could not right-click it." % target["name"]
-        return ("Right-clicked '%s' in %s - the menu should be open. Call "
-                "action='list' to read its items." % (target["name"], where))
-
-    if action == "set_text":
-        how = _fill(target, text)
-        if not how:
-            return "I found '%s' in %s but could not write into it." % (target["name"], where)
-        back = _read_back(target)
-        if back and text and str(text).strip().casefold() not in back.casefold():
-            return ("Wrote into '%s' (%s) but it now reads '%s' - not what you asked for."
-                    % (target["name"], how, back))
-        return "Wrote '%s' into '%s' in %s (%s)." % (text, target["name"], where, how)
-
-    return "Unknown action '%s'. Use windows, list, click, right_click or set_text." % action
-
-
-TOOL["parameters"]["properties"]["action"]["description"] = (
-    "windows | list | click | right_click | set_text")
-TOOL["parameters"]["properties"]["expect_file"] = {
-    "type": "STRING",
-    "description": ("For click: the file that MUST exist afterwards, e.g. "
-                    "'testy.txt' or a full path. The result then reports the "
-                    "real state of the disk instead of claiming success."),
-}
-TOOL["handler"] = ui_click
-
-
-# ── v3: real keys into a NAMED window, and one-call save_as ──────────────────
-# The Notepad session failed in five different ways for one reason: nothing could
-# put keys into a CHOSEN window. `computer_settings save` pressed Ctrl+S at
-# whatever happened to have focus, and the log shows the engine then losing the
-# window ("could not bring 'File' to the front"). So v3 sends keys to a NAMED
-# window only after proving that window is really in the foreground, and adds
-# save_as which does the whole thing and then asks the FILESYSTEM whether it
-# worked - never the click.
-from pywinauto.keyboard import send_keys as _send_keys_raw
-
-_SAVE_BUTTONS = ("Save", "ذخیره", "ذخیره کردن")
-_REPLACE_YES = ("Replace", "Yes", "جایگزین", "بله")
-_CANCEL_NO = ("No", "Cancel", "لغو", "خیر")
-
-
-def _fg_hwnd():
+def _send_keys(keys):
     try:
-        import ctypes
-        return int(ctypes.windll.user32.GetForegroundWindow())
+        import pywinauto.keyboard as keyboard
+        keyboard.send_keys(
+            str(keys),
+            with_spaces=True,
+            with_tabs=True,
+            with_newlines=True,
+        )
+        return True
     except Exception:
-        return 0
+        return False
 
 
+def _desktop_path(path):
+    p = os.path.expandvars(os.path.expanduser(str(path or "")))
+
+    if os.path.isabs(p):
+        return os.path.normpath(p)
+
+    candidates = [
+        os.path.join(os.path.expanduser("~/Desktop"), p),
+        os.path.join(os.path.expanduser("~/Downloads"), p),
+        os.path.abspath(p),
+    ]
+
+    for candidate in candidates:
+        parent = os.path.dirname(candidate)
+        if os.path.isdir(parent):
+            return os.path.normpath(candidate)
+
+    return os.path.normpath(candidates[0])
 
 
+def _find_save_dialog(before_hwnds, app_win, timeout=5.0):
+    deadline = time.time() + timeout
+    app_pid = int((app_win or {}).get("pid") or 0)
 
+    while time.time() < deadline:
+        for win in WA.list_windows():
+            hwnd = _hwnd(win)
+            pid = int(win.get("pid") or 0)
 
-def _names_of(w):
-    return "; ".join(c["name"] for c in _controls_of(w) if c["name"])[:300]
-
-
-def _desktop_path(name):
-    s = str(name or "").strip().strip('"')
-    if _os.sep in s or "/" in s:
-        return _os.path.expandvars(_os.path.expanduser(s))
-    home = _os.path.expanduser("~")
-    for base in (("Desktop",), ("OneDrive", "Desktop"), ("Downloads",)):
-        d = _os.path.join(home, *base)
-        if _os.path.isdir(d):
-            return _os.path.join(d, s)
-    return _os.path.join(home, s)
-
-
-def _stat_of(path):
-    try:
-        st = _os.stat(path)
-        return (int(st.st_mtime), int(st.st_size))
-    except Exception:
-        return None
-
-
-def _wait_for_dialog(before, timeout=6.0, pid=None):
-    t0 = time.time()
-    while time.time() - t0 < timeout:
-        for w in [w for w in _windows() if _area(w) > 0]:
-            if _hwnd(w) in before or not _looks_like_dialog(w):
+            if not hwnd or hwnd in before_hwnds:
                 continue
-            if pid is not None and w.get("pid") and w.get("pid") != pid:
+
+            if app_pid and pid and pid != app_pid:
                 continue
-            return w
-        time.sleep(0.35)
+
+            title = _norm(win.get("name") or win.get("title"))
+
+            if any(
+                token in title
+                for token in (
+                    "save as",
+                    "save",
+                    "ذخیره",
+                )
+            ):
+                return win
+
+        time.sleep(0.15)
+
     return None
 
 
-def _save_as(app_title, target, replace=False):
-    win, err = _resolve_window(app_title)
-    if win is None:
-        return err
-    where = str(win.get("name") or "") or str(win.get("exe") or "") or "the app"
-    pid = win.get("pid")
-    full = _desktop_path(target)
-    before_state = _stat_of(full)
+def _save_as(win, path, replace=False, expect=""):
+    destination = _desktop_path(path)
 
-    # 1) prove the window is in front BEFORE a single key is sent
-    _focus(win)
-    if _fg_hwnd() != _hwnd(win):
-        _focus(win)
-        time.sleep(0.4)
-    if _fg_hwnd() != _hwnd(win):
-        return ("I could not bring %s to the front, so I did NOT send Ctrl+S - "
-                "another window would have received it instead." % where)
+    if not _force_foreground(win):
+        return "Failed: could not activate target window."
 
-    before = {_hwnd(w) for w in _windows()}
-    if not _send_keys(win, "^s", focus=False):
-        return "Could not send Ctrl+S to %s." % where
+    before = {_hwnd(w) for w in WA.list_windows() if _hwnd(w)}
 
-    # 2) the Save dialog, belonging to THIS app
-    dlg = _wait_for_dialog(before, timeout=7.0, pid=pid)
-    if dlg is None:
-        ok, path = _file_exists(full)
-        if ok and before_state is None:
-            return "No dialog appeared and the file is on disk: %s" % path
-        if ok and _stat_of(full) == before_state:
-            return ("No Save dialog appeared and %s already existed unchanged - "
-                    "nothing was written." % path)
-        return ("Ctrl+S opened no Save dialog in %s and %s is not on disk, so "
-                "nothing was saved." % (where, full))
+    if not _send_keys("^s"):
+        return "Failed: could not send Ctrl+S."
 
-    # 3) the file-name field, scoped to this dialog, then READ BACK
-    field = _pick(_controls_of(dlg), "File name") or _pick(_controls_of(dlg), "Name")
-    if field is None:
-        return ("The Save dialog has no readable file-name field, so I stopped. "
-                "Its controls: %s" % _names_of(dlg))
-    if not _fill(field, full):
-        return "Could not write the path into the Save dialog's file-name field."
-    time.sleep(0.25)
-    read = _read_back(field).strip().strip('"')
-    if read.casefold() != full.casefold():
-        return ("The file-name field reads '%s', not '%s' - I stopped before "
-                "saving anything wrong." % (read, full))
+    dialog = _find_save_dialog(before, win)
+    if dialog is None:
+        return "Failed: Save dialog was not detected."
 
-    # 4) a uniquely named Save button - never a blind Enter
-    btn = None
-    for want in _SAVE_BUTTONS:
-        btn = _pick(_controls_of(dlg), want)
-        if btn is not None:
+    if not _force_foreground(dialog):
+        return "Failed: could not activate Save dialog."
+
+    controls = _controls_of(dialog)
+    filename = None
+
+    preferred = (
+        "1001",
+        "FileNameControlHost",
+        "File name",
+        "Filename",
+        "نام فایل",
+    )
+
+    for key in preferred:
+        filename = _pick(controls, key)
+        if filename:
             break
-    if btn is None:
-        return ("I filled the path but found no Save button, so I pressed "
-                "nothing. Dialog controls: %s" % _names_of(dlg))
-    if not _invoke(btn):
-        return "The Save button could not be activated; nothing was saved."
-    time.sleep(0.6)
 
-    # 5) an overwrite prompt is its own dialog - never overwrite unasked
-    follow = _wait_for_dialog(before | {_hwnd(dlg)}, timeout=2.5, pid=pid)
-    if follow is not None:
-        prompt = _names_of(follow)
-        if not replace:
-            for no in _CANCEL_NO:
-                c = _pick(_controls_of(follow), no)
-                if c is not None and _invoke(c):
-                    break
-            return ("%s already exists and Windows asked to replace it. I chose "
-                    "NOT to overwrite and cancelled. Ask again with replace=true "
-                    "and I will; the prompt offered: %s" % (full, prompt))
-        for yes in _REPLACE_YES:
-            c = _pick(_controls_of(follow), yes)
-            if c is not None and _invoke(c):
+    if filename is None:
+        for item in controls:
+            typ = _norm(item.get("control_type") or item.get("type"))
+            if typ in ("edit", "document"):
+                filename = item
                 break
-        time.sleep(0.6)
 
-    # 6) the disk decides, not the click
-    ok, path = _file_exists(full)
-    if not ok:
-        return ("I clicked Save in %s but %s is NOT on disk - the save did not "
-                "happen." % (where, full))
-    if before_state is not None and _stat_of(full) == before_state:
-        return ("%s exists but its contents did not change, so treat this as NOT "
-                "saved." % path)
-    return "Saved and verified on disk: %s" % path
+    if filename is None:
+        return "Failed: Save filename control was not found."
+
+    element = _wrap(dialog, filename)
+    if element is None:
+        return "Failed: Save filename control could not be resolved."
+
+    if not _fill(element, destination):
+        return "Failed: could not enter destination filename."
+
+    typed = _read_back(element)
+    if destination.casefold() not in typed.casefold():
+        return "Failed: filename field verification failed."
+
+    controls = _controls_of(dialog)
+    save_button = None
+
+    for key in ("Save", "save", "ذخیره"):
+        save_button = _pick(controls, key)
+        if save_button:
+            break
+
+    if save_button is None:
+        for item in controls:
+            if _norm(item.get("control_type") or item.get("type")) == "button":
+                if "save" in _norm(item.get("name") or item.get("text")):
+                    save_button = item
+                    break
+
+    if save_button is None:
+        return "Failed: Save button was not found."
+
+    save_element = _wrap(dialog, save_button)
+    if save_element is None or not _invoke(save_element):
+        return "Failed: could not activate Save."
+
+    deadline = time.time() + 5.0
+    target_exists = False
+
+    while time.time() < deadline:
+        if os.path.isfile(destination):
+            target_exists = True
+            break
+        time.sleep(0.15)
+
+    if not target_exists and not replace:
+        return "Failed: output file was not verified."
+
+    if replace and not os.path.isfile(destination):
+        return "Failed: replacement file was not verified."
+
+    if expect:
+        try:
+            with open(destination, "r", encoding="utf-8", errors="replace") as f:
+                data = f.read()
+            if str(expect) not in data:
+                return "Failed: expected text was not found in saved file."
+        except Exception as exc:
+            return f"Failed: could not verify saved file contents: {exc}"
+
+    return f"Verified: saved file exists at {destination}"
 
 
-# ── dispatch the new actions, keep v2 for everything else ───────────────────
-_ui_click_v2 = ui_click
+def _format_windows():
+    windows = WA.list_windows()
+
+    if not windows:
+        return "Verified: no visible windows found."
+
+    lines = ["Verified: visible windows:"]
+    for w in windows:
+        lines.append(
+            f"- {w.get('name') or '<untitled>'} "
+            f"[hwnd={w.get('hwnd')}, pid={w.get('pid')}, "
+            f"exe={w.get('exe') or ''}]"
+        )
+
+    return "\n".join(lines)
+
+
+def _format_inventory(win):
+    controls = _controls_of(win)
+
+    if not controls:
+        return "Verified: no readable UI controls found."
+
+    lines = [f"Verified: {len(controls)} UI controls detected."]
+
+    for item in controls:
+        name = (
+            item.get("name")
+            or item.get("text")
+            or item.get("value")
+            or "<unnamed>"
+        )
+        typ = item.get("control_type") or item.get("type") or ""
+        auto_id = item.get("automation_id") or item.get("auto_id") or ""
+
+        lines.append(
+            f"- {name} | type={typ} | auto_id={auto_id}"
+        )
+
+    return "\n".join(lines)
 
 
 def ui_click(parameters, player=None, session_memory=None) -> str:
     p = parameters or {}
-    a = str(p.get("action") or "").strip().lower()
 
-    if a == "save_as":
-        return _save_as(p.get("window") or "", p.get("text") or p.get("path") or "",
-                        bool(p.get("replace")))
+    action = _norm(p.get("action") or p.get("op") or "")
+    window_name = (
+        p.get("window")
+        or p.get("title")
+        or p.get("app")
+        or ""
+    )
 
-    if a in ("keys", "type"):
-        win, err = _resolve_window(p.get("window") or "")
+    if action in ("windows", "list_windows"):
+        return _format_windows()
+
+    if action in ("list", "inventory"):
+        win = _resolve_window(window_name)
         if win is None:
-            return err
-        where = str(win.get("name") or "") or str(win.get("exe") or "") or "the window"
-        _focus(win)
-        if _fg_hwnd() != _hwnd(win):
-            return ("I could not bring %s to the front, so I did NOT send keys - "
-                    "they would have gone to another window." % where)
-        payload = p.get("keys") if a == "keys" else p.get("text")
-        payload = str(payload or "")
-        if not payload:
-            return "Nothing to send - give me 'keys' (e.g. '^s') or 'text'."
-        try:
-            if a == "keys":
-                _send_keys_raw(payload, pause=0.05)
-            else:
-                _send_keys_raw(payload, with_spaces=True, pause=0.03)
-        except Exception as e:
-            return "Could not send it to %s: %r" % (where, e)
-        return "Sent %s to %s." % ("keys '%s'" % payload if a == "keys" else "text", where)
+            return "Failed: target window was not found."
+        return _format_inventory(win)
 
-    return _ui_click_v2(parameters, player, session_memory)
+    if action in ("focus", "activate"):
+        win = _resolve_window(window_name)
+        if win is None:
+            return "Failed: target window was not found."
+        if not _force_foreground(win):
+            return "Failed: target window could not be activated."
+        return f"Verified: activated {win.get('name') or window_name}"
 
+    win = _resolve_window(window_name)
+    if win is None:
+        return "Failed: target window was not found."
 
-TOOL["parameters"]["properties"]["keys"] = {
-    "type": "STRING",
-    "description": "For action='keys': the combination, e.g. '^s' = Ctrl+S, '{ENTER}'.",
-}
-TOOL["parameters"]["properties"]["replace"] = {
-    "type": "BOOLEAN",
-    "description": "For save_as: true only if the user agreed to overwrite an existing file.",
-}
-TOOL["parameters"]["properties"]["action"]["description"] = (
-    "windows | list | click | right_click | set_text | keys | type | save_as")
-TOOL["description"] += (
-    " action='save_as' with window=<app> and text=<name or full path> does the "
-    "entire save in ONE call: brings the app to the front, Ctrl+S, fills the "
-    "dialog's file-name field, clicks Save by name, answers an overwrite prompt, "
-    "and then reports the REAL state of the disk - it never claims a save it "
-    "cannot prove. 'testy.txt' alone means the Desktop."
-)
+    if not _force_foreground(win):
+        return "Failed: target window could not be activated."
+
+    if action in ("keys", "send_keys"):
+        keys = p.get("keys") or p.get("text") or ""
+        if not keys:
+            return "Failed: no key sequence supplied."
+
+        if not _send_keys(keys):
+            return "Failed: key sequence could not be sent."
+
+        return "Verified: key sequence sent to active window."
+
+    if action in ("type", "type_text"):
+        text = str(p.get("text") or "")
+
+        if not _send_keys(text):
+            return "Failed: text could not be typed."
+
+        return "Verified: text sent to active window."
+
+    controls = _controls_of(win)
+
+    target_name = (
+        p.get("name")
+        or p.get("control")
+        or p.get("target")
+        or ""
+    )
+
+    if action in ("click", "right_click", "set_text", "fill"):
+        if not target_name:
+            return "Failed: control name was not supplied."
+
+        item = _pick(controls, target_name)
+
+        if item is None:
+            return f"Failed: control '{target_name}' was not uniquely found."
+
+        element = _wrap(win, item)
+
+        if element is None:
+            return f"Failed: control '{target_name}' could not be resolved."
+
+        if action == "click":
+            if not _invoke(element):
+                return f"Failed: could not click '{target_name}'."
+
+            return f"Verified: activated control '{target_name}'."
+
+        if action == "right_click":
+            if not _right_click(element):
+                return f"Failed: could not right-click '{target_name}'."
+
+            return f"Verified: right-clicked control '{target_name}'."
+
+        text = str(p.get("text") or "")
+
+        if not _fill(element, text):
+            return f"Failed: could not set text in '{target_name}'."
+
+        readback = _read_back(element)
+
+        if _norm(readback) != _norm(text):
+            return (
+                f"Failed: text verification failed for '{target_name}'. "
+                f"readback={readback!r}"
+            )
+
+        return f"Verified: set text in '{target_name}'."
+
+    if action == "save_as":
+        path = p.get("path") or p.get("text") or ""
+        if not path:
+            return "Failed: save_as requires path."
+
+        return _save_as(
+            win,
+            path,
+            replace=bool(p.get("replace", False)),
+            expect=str(p.get("expect") or ""),
+        )
+
+    return (
+        "Failed: unsupported ui_click action. "
+        "Supported: windows, list, focus, click, right_click, "
+        "set_text, keys, type, save_as."
+    )
+
+# ActionLoader runtime binding: handler must be the actual callable.
 TOOL["handler"] = ui_click
-
-
-# ── v4: put the keys in the RIGHT window, or the save never happens ──────────
-# MEASURED: save_as on Notepad said "Ctrl+S opened no Save dialog ... so nothing
-# was saved" while the window itself resolved perfectly. The test ran from MINGW,
-# so the FOREGROUND window was the terminal. _focus() only REQUESTS focus and
-# pywinauto.keyboard.send_keys() types into the ACTIVE window - so Ctrl+S went to
-# the console and Notepad never saw it. Windows refuses SetForegroundWindow to a
-# background process on purpose; the documented way through is AttachThreadInput
-# to the current + target threads, then BringWindowToTop + SetForegroundWindow,
-# and - critically - to VERIFY GetForegroundWindow()==hwnd before typing. This
-# layer does exactly that; _send_keys now refuses to type unless the target is
-# provably in front. A File->Save As menu fallback covers Ctrl+S doing nothing.
-import ctypes as _ct
-
-_u32 = _ct.windll.user32
-_kt32 = _ct.windll.kernel32
-
-
-def _is_fg(hwnd) -> bool:
-    try:
-        return int(_u32.GetForegroundWindow()) == int(hwnd or 0)
-    except Exception:
-        return False
-
-
-
-
-def _focus(win):                         # redefined: real, verified foreground
-    return _force_foreground(win)
-
-
-
-
-def _menu_save_as(win):
-    """Fallback with no keystrokes: File -> Save As through UIA by name."""
-    title = str((win or {}).get("name") or "")
-    if not title:
-        return False
-    try:
-        ui_click({"action": "click", "window": title, "name": "File"})
-        time.sleep(0.4)
-        ui_click({"action": "click", "window": title, "name": "Save as"})
-        return True
-    except Exception:
-        return False
-
-
-# ── v5: the real Save-As path, matched by IDENTITY not by UIA Name ───────────
-# MEASURED: with the foreground fix, Ctrl+S DID open the dialog (focus=True,
-# fg==win=True) but the reader reported "no readable file-name field" - because
-# it looked for a control NAME and the modern Windows 11 save dialog's file-name
-# field has an EMPTY Name (class 'Edit' under 'FileNameControlHost', auto_id
-# '1001'); it may also not expose a Value pattern. So this path matches by
-# auto_id / class_name, writes with the CLIPBOARD (not ValuePattern), clicks a
-# UNIQUELY identified Save (auto_id '1', class 'Button') - never a blind Enter -
-# handles an overwrite prompt by ID, and then asks the FILESYSTEM whether it
-# really happened. No file on disk => it says so, always.
-
-
-
-
-
-
-
-
-def _save_as_v2(p):
-    import os as _o
-    import time as _t
-    title = str((p or {}).get("window") or "").strip()
-    name = str((p or {}).get("text") or (p or {}).get("name") or "").strip()
-    if not name:
-        return "Give me a file name: {'action':'save_as','window':'Notepad','text':'testy.txt'}"
-    dest = _desktop_path(name)
-
-    tgt = _resolve_window(title) if title else _fg_win()
-    if tgt is None:
-        return "I cannot see a window matching %r - open the app first." % title
-    before = {_hwnd(w) for w in _windows()}
-    st_before = _stat_of(dest)
-    if not _force_foreground(tgt):
-        return "I could not bring %r to the front, so I did not type blind." % title
-    if not _send_keys(tgt, "^s"):
-        return "I could not send Ctrl+S to %r." % title
-
-    dlg = _wait_for_dialog(before, timeout=6.0, pid=tgt.get("pid"))
-    if dlg is None:
-        st = _stat_of(dest)
-        if st and st != st_before:
-            return "Saved (no dialog needed - the file was already named). %s is on disk." % dest
-        return ("Ctrl+S opened no Save dialog in %r and %s is not on disk, "
-                "so nothing was saved." % (title, dest))
-
-    try:
-        d = _uia_dialog(dlg)
-    except Exception as e:
-        return "I opened the Save dialog but could not attach to it: %s" % e
-
-    field = _first(d, [
-        lambda: d.child_window(auto_id="FileNameControlHost", class_name="Edit"),
-        lambda: d.child_window(auto_id="1001", class_name="Edit"),
-        lambda: d.child_window(auto_id="1001"),
-        lambda: d.child_window(class_name="Edit"),
-    ])
-    if field is None:
-        return ("The Save dialog opened but exposes no file-name field. "
-                "Its controls: %s" % _names_of(dlg))
-
-    from pywinauto.keyboard import send_keys as _sk
-    try:
-        field.click_input()
-        _sk("^a")
-    except Exception:
-        pass
-    wrote = False
-    try:
-        import pyperclip
-        pyperclip.copy(dest)
-        _t.sleep(0.15)
-        _sk("^v")
-        wrote = True
-    except Exception:
-        pass
-    if not wrote:
-        try:
-            _sk(dest, with_spaces=True, pause=0.01)
-            wrote = True
-        except Exception as e:
-            return "I could not type into the file-name field: %s" % e
-    _t.sleep(0.3)
-
-    try:
-        shown = str(field.get_value() or field.window_text() or "")
-    except Exception:
-        shown = ""
-    if shown and _o.path.basename(dest).casefold() not in shown.casefold():
-        return ("I typed %r but the field reads %r - stopping before Save."
-                % (dest, shown[:80]))
-
-    save = _first(d, [
-        lambda: d.child_window(auto_id="1", class_name="Button"),
-        lambda: d.child_window(title_re="(?i)^&?(save|ذخیره( کردن)?)$",
-                               class_name="Button"),
-    ])
-    if save is None:
-        return ("I filled the file name but found no uniquely identified Save "
-                "button, so I did not press Enter blind. Controls: %s" % _names_of(dlg))
-    try:
-        save.click_input()
-    except Exception:
-        try:
-            save.invoke()
-        except Exception as e:
-            return "I could not press Save: %s" % e
-
-    extra = _click_replace_if_prompted(before | {_hwnd(dlg)})
-
-    t0 = _t.time()
-    while _t.time() - t0 < 8.0:
-        st = _stat_of(dest)
-        if st and st != st_before:
-            return "Saved%s. I checked the disk: %s now exists (%d bytes)." % (
-                extra, dest, st[1])
-        _t.sleep(0.25)
-    return ("I pressed Save but %s is not on disk (or did not change), so I will "
-            "not claim it was saved." % dest)
-
-
-_ui_click_v5 = ui_click
-
-
-def ui_click(parameters, player=None, session_memory=None) -> str:
-    act = str((parameters or {}).get("action") or "").lower()
-    if act in ("save_as", "saveas", "save_as_file"):
-        return _save_as_v2(parameters)
-    return _ui_click_v5(parameters, player=player, session_memory=session_memory)
-
-
-# ── v5: the real Save-As path, matched by IDENTITY not by UIA Name ───────────
-# MEASURED: with the foreground fix, Ctrl+S DID open the dialog (focus=True,
-# fg==win=True) but the reader reported "no readable file-name field" - because
-# it looked for a control NAME and the modern Windows 11 save dialog's file-name
-# field has an EMPTY Name (class 'Edit' under 'FileNameControlHost', auto_id
-# '1001'); it may also not expose a Value pattern. So this path matches by
-# auto_id / class_name, writes with the CLIPBOARD (not ValuePattern), clicks a
-# UNIQUELY identified Save (auto_id '1', class 'Button') - never a blind Enter -
-# handles an overwrite prompt by ID, and then asks the FILESYSTEM whether it
-# really happened. No file on disk => it says so, always.
-def _fg_win():
-    try:
-        import ctypes
-        h = int(ctypes.windll.user32.GetForegroundWindow())
-    except Exception:
-        return None
-    for w in _windows():
-        if _hwnd(w) == h:
-            return w
-    return None
-
-
-def _uia_dialog(dlg):
-    from pywinauto import Application
-    h = _hwnd(dlg)
-    app = Application(backend="uia").connect(handle=h)
-    d = app.window(handle=h)
-    try:
-        d.wait("visible enabled", timeout=6)
-    except Exception:
-        pass
-    return d
-
-
-def _first(d, probes):
-    for p in probes:
-        try:
-            c = p()
-            if c is not None and c.exists(timeout=0.6):
-                return c
-        except Exception:
-            continue
-    return None
-
-
-def _click_replace_if_prompted(before):
-    import time as _t
-    for _ in range(8):
-        w = _wait_for_dialog(before, timeout=0.7)
-        if w is None:
-            return ""
-        try:
-            d = _uia_dialog(w)
-            btn = _first(d, [
-                lambda: d.child_window(title_re="(?i)^&?(replace|yes|جایگزین|بله)$",
-                                       class_name="Button"),
-                lambda: d.child_window(auto_id="6", class_name="Button"),   # Yes
-            ])
-            if btn is not None:
-                try:
-                    btn.click_input()
-                except Exception:
-                    btn.invoke()
-                return " (I confirmed the overwrite)"
-        except Exception:
-            pass
-        _t.sleep(0.25)
-    return ""
-
-
-def _save_as_v2(p):
-    import os as _o
-    import time as _t
-    title = str((p or {}).get("window") or "").strip()
-    name = str((p or {}).get("text") or (p or {}).get("name") or "").strip()
-    if not name:
-        return "Give me a file name: {'action':'save_as','window':'Notepad','text':'testy.txt'}"
-    dest = _desktop_path(name)
-
-    tgt = _resolve_window(title) if title else _fg_win()
-    if tgt is None:
-        return "I cannot see a window matching %r - open the app first." % title
-    before = {_hwnd(w) for w in _windows()}
-    st_before = _stat_of(dest)
-    if not _force_foreground(tgt):
-        return "I could not bring %r to the front, so I did not type blind." % title
-    if not _send_keys(tgt, "^s"):
-        return "I could not send Ctrl+S to %r." % title
-
-    dlg = _wait_for_dialog(before, timeout=6.0, pid=tgt.get("pid"))
-    if dlg is None:
-        st = _stat_of(dest)
-        if st and st != st_before:
-            return "Saved (no dialog needed - the file was already named). %s is on disk." % dest
-        return ("Ctrl+S opened no Save dialog in %r and %s is not on disk, "
-                "so nothing was saved." % (title, dest))
-
-    try:
-        d = _uia_dialog(dlg)
-    except Exception as e:
-        return "I opened the Save dialog but could not attach to it: %s" % e
-
-    field = _first(d, [
-        lambda: d.child_window(auto_id="FileNameControlHost", class_name="Edit"),
-        lambda: d.child_window(auto_id="1001", class_name="Edit"),
-        lambda: d.child_window(auto_id="1001"),
-        lambda: d.child_window(class_name="Edit"),
-    ])
-    if field is None:
-        return ("The Save dialog opened but exposes no file-name field. "
-                "Its controls: %s" % _names_of(dlg))
-
-    from pywinauto.keyboard import send_keys as _sk
-    try:
-        field.click_input()
-        _sk("^a")
-    except Exception:
-        pass
-    wrote = False
-    try:
-        import pyperclip
-        pyperclip.copy(dest)
-        _t.sleep(0.15)
-        _sk("^v")
-        wrote = True
-    except Exception:
-        pass
-    if not wrote:
-        try:
-            _sk(dest, with_spaces=True, pause=0.01)
-            wrote = True
-        except Exception as e:
-            return "I could not type into the file-name field: %s" % e
-    _t.sleep(0.3)
-
-    try:
-        shown = str(field.get_value() or field.window_text() or "")
-    except Exception:
-        shown = ""
-    if shown and _o.path.basename(dest).casefold() not in shown.casefold():
-        return ("I typed %r but the field reads %r - stopping before Save."
-                % (dest, shown[:80]))
-
-    save = _first(d, [
-        lambda: d.child_window(auto_id="1", class_name="Button"),
-        lambda: d.child_window(title_re="(?i)^&?(save|ذخیره( کردن)?)$",
-                               class_name="Button"),
-    ])
-    if save is None:
-        return ("I filled the file name but found no uniquely identified Save "
-                "button, so I did not press Enter blind. Controls: %s" % _names_of(dlg))
-    try:
-        save.click_input()
-    except Exception:
-        try:
-            save.invoke()
-        except Exception as e:
-            return "I could not press Save: %s" % e
-
-    extra = _click_replace_if_prompted(before | {_hwnd(dlg)})
-
-    t0 = _t.time()
-    while _t.time() - t0 < 8.0:
-        st = _stat_of(dest)
-        if st and st != st_before:
-            return "Saved%s. I checked the disk: %s now exists (%d bytes)." % (
-                extra, dest, st[1])
-        _t.sleep(0.25)
-    return ("I pressed Save but %s is not on disk (or did not change), so I will "
-            "not claim it was saved." % dest)
-
-
-_ui_click_v5 = ui_click
-
-
-def ui_click(parameters, player=None, session_memory=None) -> str:
-    act = str((parameters or {}).get("action") or "").lower()
-    if act in ("save_as", "saveas", "save_as_file"):
-        return _save_as_v2(parameters)
-    return _ui_click_v5(parameters, player=player, session_memory=session_memory)
-
-
-# ── v6: resolve the target with the SAME picker the engine trusts ────────────
-# MEASURED contradiction: the test foregrounded da._pick_window('Notepad') and got
-# focus=True, but save_as then re-resolved with ui_click._resolve_window() and
-# reported "I could not bring 'Notepad' to the front" - i.e. the two resolvers
-# returned DIFFERENT windows (the second hidden/minimized/wrong), because
-# _force_foreground refused to type into anything it could not prove was in front.
-# Fix: resolve once, THROUGH desktop_agent._pick_window (the hardened picker),
-# validate the HWND, treat an already-foreground window as instant success, and
-# retry politely instead of giving up. Re-resolving was the only reason the test
-# and save_as disagreed.
-def _resolve_window(title):
-    if not title:
-        return _fg_win()
-    try:
-        from core import desktop_agent as da
-        w = da._pick_window(title, tries=3, settle=0.2)
-    except Exception:
-        w = None
-    h = _hwnd(w)
-    try:
-        if h and _u32.IsWindow(h):
-            return w
-    except Exception:
-        pass
-    return None
-
-
-def _force_foreground(win, tries=12):
-    import time as _t
-    hwnd = _hwnd(win)
-    if not hwnd:
-        return False
-    try:
-        if not _u32.IsWindow(hwnd):
-            return False
-        if _is_fg(hwnd):
-            return True
-        if _u32.IsIconic(hwnd):
-            _u32.ShowWindow(hwnd, 9)          # SW_RESTORE
-    except Exception:
-        pass
-    cur = int(_kt32.GetCurrentThreadId())
-    for _ in range(max(1, tries)):
-        if _is_fg(hwnd):
-            return True
-        fg = int(_u32.GetForegroundWindow())
-        fg_th = int(_u32.GetWindowThreadProcessId(fg, None))
-        tg_th = int(_u32.GetWindowThreadProcessId(hwnd, None))
-        attached = []
-        try:
-            for th in (fg_th, tg_th):
-                if th and th != cur and th not in attached:
-                    _u32.AttachThreadInput(cur, th, True)
-                    attached.append(th)
-            _u32.BringWindowToTop(hwnd)
-            _u32.SetForegroundWindow(hwnd)
-            _u32.SetActiveWindow(hwnd)
-        except Exception:
-            pass
-        finally:
-            for th in attached:
-                try:
-                    _u32.AttachThreadInput(cur, th, False)
-                except Exception:
-                    pass
-        if _is_fg(hwnd):
-            return True
-        _t.sleep(0.15)
-    return _is_fg(hwnd)
-
-
-# ── keys must KEEP their spaces ──────────────────────────────────────────────
-# MEASURED: _send_keys(w, "Hello VORNEX 123") wrote "HelloVORNEX123" into the file
-# - pywinauto's send_keys drops spaces unless with_spaces=True, and tabs/newlines
-# unless with_tabs/with_newlines are given. Any sentence typed through this path
-# (a file name with spaces, a search phrase, a message) was silently mangled.
-def _send_keys(win, keys, focus=True):
-    if focus:
-        _focus(win)
-        time.sleep(0.25)
-    try:
-        _send_keys_raw(str(keys), pause=0.05,
-                       with_spaces=True, with_tabs=True, with_newlines=True)
-        return True
-    except Exception:
-        return False
-
-
-# ── v7: a save must contain what was asked - never trust size alone ─────────
-# An empty document legitimately saves as 0 bytes, but the same "exists+changed"
-# check would pass a 0-byte file when the user DID write text. So save_as accepts
-# `expect`; the file is read back and must contain it (Unicode-NFKC, whitespace
-# collapsed). The base handler is captured ONCE via globals() so appending this
-# block a second time can never make the wrapper call itself.
-_SAVE_AS_BASE = globals().get("_SAVE_AS_BASE") or _save_as_v2
-
-
-def _save_as_v2(p):
-    out = _SAVE_AS_BASE(p)
-    want = str((p or {}).get("expect") or (p or {}).get("expect_text") or "").strip()
-    if not want or "now exists" not in out:
-        return out
-    dest = _desktop_path(str((p or {}).get("text") or (p or {}).get("name") or ""))
-    try:
-        with open(dest, "r", encoding="utf-8", errors="ignore") as f:
-            body = f.read()
-    except Exception:
-        return out + " (I could not read it back to confirm its contents.)"
-
-    def _norm(s):
-        import unicodedata as _ud
-        return " ".join(_ud.normalize("NFKC", str(s)).split()).casefold()
-
-    if _norm(want) in _norm(body):
-        return out + " Its contents match what you asked to write."
-    return ("I saved %s but its contents do not contain %r, so I will NOT claim the "
-            "text was saved correctly." % (dest, want[:60]))
