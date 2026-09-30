@@ -22,11 +22,23 @@ def _config_proxy() -> str:
 
 def apply_proxy():
     global _applied
-    proxy = _config_proxy() or os.environ.get("HTTPS_PROXY", "").strip()
-    if proxy and not _applied:
-        os.environ.setdefault("HTTPS_PROXY", proxy)
-        os.environ.setdefault("HTTP_PROXY", proxy)
-        os.environ.setdefault("ALL_PROXY", proxy)
+
+    proxy = _config_proxy().strip()
+
+    if not proxy:
+        proxy = os.environ.get("HTTPS_PROXY", "").strip()
+
+    if proxy:
+        for key in ("HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY",
+                    "WS_PROXY", "WSS_PROXY"):
+            os.environ[key] = proxy
+
         os.environ.setdefault("NO_PROXY", "localhost,127.0.0.1,::1")
         _applied = True
+    else:
+        # No configured/system proxy: remove stale websocket proxy settings
+        # that can force Live API through a dead local proxy.
+        os.environ.pop("WS_PROXY", None)
+        os.environ.pop("WSS_PROXY", None)
+
     return proxy
