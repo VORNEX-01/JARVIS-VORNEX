@@ -2028,8 +2028,8 @@ class JarvisLive:
                         f"{decision.data}".strip()
                     )
 
-                    if decision.kind == "diagnose_health_check":
-                        action = decision.data.get("action", "")
+                    action = decision.data.get("action", "")
+                    if action and self._executor.allowed(action):
                         result = self._executor.execute(action)
 
                         self._event_bus.emit(
@@ -2038,6 +2038,7 @@ class JarvisLive:
                             status=result.status,
                             summary=result.summary,
                             evidence=result.evidence,
+                            decision=decision.kind,
                         )
 
                 kind = event.kind

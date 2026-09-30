@@ -23,6 +23,9 @@ class Decision:
 class DecisionController:
     DECISION_ACTIONS = {
         "diagnose_health_check": "health_check",
+        "diagnose_tool_failure": "runtime_status",
+        "diagnose_resource": "runtime_status",
+        "observe_reconnect": "runtime_status",
     }
 
     ALLOWED_EVENTS = {
@@ -46,6 +49,7 @@ class DecisionController:
                 data={
                     "tool": data.get("tool", ""),
                     "error": data.get("error", ""),
+                    "action": self.DECISION_ACTIONS["diagnose_tool_failure"],
                 },
             )
 
@@ -56,6 +60,7 @@ class DecisionController:
                 data={
                     "resource": data.get("resource", ""),
                     "value": data.get("value"),
+                    "action": self.DECISION_ACTIONS["diagnose_resource"],
                 },
             )
 
@@ -76,6 +81,7 @@ class DecisionController:
                 data={
                     "reason": data.get("reason", ""),
                     "keep_context": bool(data.get("keep_context", True)),
+                    "action": self.DECISION_ACTIONS["observe_reconnect"],
                 },
             )
 
