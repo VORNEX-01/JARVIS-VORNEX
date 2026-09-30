@@ -1365,6 +1365,9 @@ class JarvisLive:
             if self._ptt_enabled and not self._ptt_held:
                 return
 
+            if getattr(self, "_confirm_busy", False):
+                return
+
             if not self.ui.muted and not self._phone_active:
                 data = indata.tobytes()
                 loop.call_soon_threadsafe(
@@ -1553,6 +1556,7 @@ class JarvisLive:
                                 try:
                                     from core import confirm as _confirm
                                     if _confirm.try_voice(full_in):
+                                        self._confirm_busy = True
                                         self.ui.write_log("SYS: Voice confirmation received.")
                                         in_buf = []
                                         continue
@@ -1757,6 +1761,10 @@ class JarvisLive:
             if not item:
                 continue
             title, result = item
+            try:
+                self._confirm_busy = False
+            except Exception:
+                pass
             try:
                 self.ui.write_log(f"SYS: {result}")
             except Exception:
@@ -2161,6 +2169,7 @@ class JarvisLive:
                     self._vision_busy          = False
                     self._vision_last_time     = 0.0
                     self._interrupted          = False
+                    self._confirm_busy        = False  # block mic streaming while a confirmed action runs
 
                     print("[VORNEX] Connected.")
                     if _resumed_with:
