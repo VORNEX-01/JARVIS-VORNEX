@@ -621,6 +621,10 @@ class JarvisLive:
             "health_check",
             self._controlled_health_check,
         )
+        self._executor.register(
+            "runtime_status",
+            self._controlled_runtime_status,
+        )
         self._supervisor = Supervisor(
             check_fn=self._supervisor_health_check,
             event_fn=self._on_supervisor_event,
@@ -1981,6 +1985,20 @@ class JarvisLive:
             f"ticks={snapshot['ticks']}, "
             f"session_alive={snapshot['session_alive']}, "
             f"failures={snapshot['failures']}",
+        )
+
+    def _controlled_runtime_status(self):
+        from core.action_result import verified
+
+        snapshot = self._supervisor.snapshot()
+
+        return verified(
+            "Runtime status collected",
+            f"ticks={snapshot['ticks']}, "
+            f"session_alive={snapshot['session_alive']}, "
+            f"awake={snapshot['awake']}, "
+            f"reconnects={snapshot['reconnects']}, "
+            f"tool_failures={snapshot['tool_failures']}",
         )
 
     def _supervisor_health_check(self) -> dict:
