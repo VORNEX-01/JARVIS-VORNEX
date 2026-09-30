@@ -1035,6 +1035,7 @@ class JarvisLive:
         cfg = dict(
             response_modalities=["AUDIO"],
             output_audio_transcription={},
+            input_audio_transcription={},
             system_instruction="\n".join(parts),
             tools=[{"function_declarations": _all_decls}],
             # Hand back the handle captured from the last session_resumption
