@@ -252,12 +252,16 @@ def _recipient(task: str) -> str:
 def _chat_name(win) -> str:
     """Title of the currently open conversation."""
     try:
+        import re
         name = str(win.get("name") or "")
-        # Telegram window title = "AppName — ChatName" or just "ChatName"
-        if "—" in name:
-            return name.split("—", 1)[-1].strip()
-        if "-" in name:
-            return name.split("-", 1)[-1].strip()
+        # strip invisible unicode chars (RTL mark etc)
+        name = name.strip().lstrip("‎‏‪‫‬‭‮")
+        # remove trailing message count like (156952)
+        name = re.sub(r"\s*\(\d+\)\s*$", "", name).strip()
+        # split on em-dash, en-dash, or regular dash
+        for sep in (" — ", "—", " – ", "–", " - ", "-"):
+            if sep in name:
+                return name.split(sep, 1)[-1].strip()
         return name.strip()
     except Exception:
         return ""
