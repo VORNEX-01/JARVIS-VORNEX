@@ -106,7 +106,7 @@ class ActionRegistry:
         try:
             from core.confirm import pending_title
             waiting = pending_title()
-            if waiting and name in ("computer_control", "desktop_agent"):
+            if waiting and name in ("computer_control", "desktop_agent", "telegram_delete"):
                 act = str((parameters or {}).get("action") or "").strip().lower()
                 if act not in ("", "screenshot", "screen_find", "wait"):
                     return (f"Blocked: a confirmation is waiting on screen for "
