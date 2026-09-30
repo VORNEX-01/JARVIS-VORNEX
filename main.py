@@ -86,6 +86,7 @@ from core                      import audio_devices
 from core.action_loader        import discover_actions
 from core.supervisor import Supervisor
 from core.event_bus import EventBus
+from core.diagnostic_controller import DiagnosticController
 from core.echo                 import EchoGuard
 from core.viseme               import VisemeStream
 from core.wake_word            import (
@@ -611,6 +612,7 @@ class JarvisLive:
         self._briefing_sent    = False          # morning briefing fires once per process
         self._sys_monitor      = SystemMonitor()  # persistent cooldown state
         self._event_bus = EventBus(maxsize=128)
+        self._diagnostics = DiagnosticController()
         self._supervisor = Supervisor(
             check_fn=self._supervisor_health_check,
             event_fn=self._on_supervisor_event,
@@ -1975,6 +1977,8 @@ class JarvisLive:
         while True:
             event = await self._event_bus.get()
             try:
+                self._diagnostics.handle(event)
+
                 kind = event.kind
                 data = event.data
 
