@@ -223,7 +223,7 @@ def delete_last_message(chat="", player=None) -> str:
                     % (disp, now2, "; ".join(log)))
     else:
         log.append("chat %r already open (header/title %r)" % (disp, now_title))
-before = _preview(_row(win, who))
+    before = _preview(_row(win, who))
     log.append("before %r" % before[:40])
 
     x, y = _anchor(win)
