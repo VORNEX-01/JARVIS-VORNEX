@@ -1863,7 +1863,7 @@ class JarvisLive:
                 print(f"[VORNEX] Briefing phase 2 failed: {e}")
                 self.ui.write_log("SYS: Could not fetch the news for the briefing.")
 
-        asyncio.create_task(_deliver_news())
+        # _deliver_news disabled - caused 1011 crash
 
     # ── Session memory ──────────────────────────────────────────────────────────
 
