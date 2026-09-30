@@ -1,30 +1,30 @@
-"""Delete the last message in a Telegram chat, for both sides.
+"""Delete the last message in the open Telegram chat, for both sides.
 
-MEASURED (Telegram Desktop 7.2.9): the reading pane is canvas (anonymous
-Group, no text) and the right-click context menu is custom-drawn and INVISIBLE
-to UIA - after right-click, Desktop(backend='uia').windows() showed only the
-Taskbar, the Telegram MainWindow and the terminal. So "click Delete by name" is
-impossible; the menu can only be acted on from a screenshot (the existing
-Gemini-vision planner in desktop_agent does that).
-
-HONEST VERIFICATION: the LEFT chat-list row is readable and carries the
-last-message preview (e.g. "Mahak, Pinned, چی, Received, at 3:44 PM"). A delete
-MUST change that preview. If it does not change, we say so and claim nothing.
+Telegram's message pane is canvas and its right-click menu is invisible to UIA
+(measured), so the menu is found with the EYE (core.screen_eye.find_text) and the
+delete is verified by the readable chat-list preview - never by an opened chat or
+a dismissed dialog.
 """
 from __future__ import annotations
-import re
-import time
-
-from core import desktop_agent as da
-from core import window_agent as wa
+import ctypes, re, time
+from core import desktop_agent as da, window_agent as wa, screen_eye as E
 from actions import ui_click as U
 
-_STATUS = ("Received", "Seen", "Sending", "Sent", "ویرایش", "ارسال")
 _TIME = re.compile(r"\bat\s+\d{1,2}:\d{2}\s*(AM|PM)?", re.IGNORECASE)
+_STATUS = ("Received", "Seen", "Sending", "Sent", "Not seen", "Downloaded", "Not downloaded")
 
 
-def _row(win, chat):
-    low = str(chat).casefold().strip()
+def _click(x, y, right=False):
+    u = ctypes.windll.user32
+    u.SetCursorPos(int(x), int(y)); time.sleep(0.2)
+    if right:
+        u.mouse_event(0x0008, 0, 0, 0, 0); u.mouse_event(0x0010, 0, 0, 0, 0)
+    else:
+        u.mouse_event(0x0002, 0, 0, 0, 0); u.mouse_event(0x0004, 0, 0, 0, 0)
+
+
+def _row(win, name):
+    low = str(name).casefold().strip()
     for it in wa.inventory(win):
         nm = str(it.get("name") or "")
         if nm and nm.split(",", 1)[0].strip().casefold() == low:
@@ -33,56 +33,74 @@ def _row(win, chat):
 
 
 def _preview(row):
-    # drop the clock and delivery status so a mere 'Seen'/'at 3:44' change is
-    # not mistaken for a deletion; what remains is the message preview itself.
     s = _TIME.sub("", str(row))
-    for tok in _STATUS:
-        s = s.replace(tok, "")
+    for t in _STATUS:
+        s = s.replace(t, "")
     return " ".join(s.split())
 
 
-def delete_last_message(chat="", player=None) -> str:
-    chat = str(chat or "").strip()
-    if not chat:
-        return "Which chat? Tell me the name and I will delete its last message."
+def _anchor(win):
+    r = win["rect"]; mid = (r[0] + r[2]) // 2
+    edits = [it for it in wa.inventory(win)
+             if it.get("rect") and str(it.get("type")) == "Edit" and it["rect"][0] > mid]
+    if edits:
+        cr = max(edits, key=lambda i: i["rect"][1])["rect"]
+        return mid + (r[2] - mid) // 2, cr[1] - 55
+    return mid + (r[2] - mid) // 2, r[3] - 170
 
+
+def _find(labels):
+    for lb in labels:
+        pos = E.find_text(lb)
+        if pos:
+            return pos
+    return None
+
+
+def delete_last_message(chat="", player=None) -> str:
     win = da._pick_window("Telegram", tries=6)
     if not win:
-        da._launch("Telegram"); time.sleep(8)
-        win = da._pick_window("Telegram", tries=6)
+        da._launch("Telegram"); time.sleep(8); win = da._pick_window("Telegram", tries=6)
     if not win:
         return "I could not find the Telegram window."
-    U._force_foreground(win)
+    U._force_foreground(win); E.start_auto()
 
-    row = _row(win, chat)
-    if not row:
-        return ("I could not see a chat row named %r, so I did nothing. Open it "
-                "once and I will retry." % chat)
-    before = _preview(row)
-    if not before:
-        return "I could not read that chat's preview, so I will not guess."
+    who = str(chat or da._chat_name(win) or "").strip()
+    if not who:
+        return "I cannot read which chat is open, so I stopped."
+    before = _preview(_row(win, who))
 
-    # Vision does the clicking (the menu is invisible to UIA).
-    da.run_task(
-        "In the open Telegram chat with %s, right-click the LAST message, click "
-        "the 'Delete' item, then in the confirmation tick 'Delete for both sides' "
-        "and click Delete." % chat,
-        app="Telegram", player=player)
+    x, y = _anchor(win)
+    _click(x, y, right=True); time.sleep(1.3)
 
-    # The confirmed action runs on a worker thread, so wait for the preview to
-    # ACTUALLY change instead of trusting the planner's own message.
-    deadline = time.time() + 30
+    pos = _find(("Delete", "حذف"))
+    if not pos:
+        return "The menu opened but my eye did not find 'Delete' on it; I stopped."
+    _click(*pos); time.sleep(1.0)
+
+    chk = _find(("Delete for both sides", "Delete for everyone", "حذف برای هر دو طرف"))
+    if chk:
+        _click(*chk); time.sleep(0.4)
+
+    pos = _find(("Delete", "حذف"))
+    if not pos:
+        return "I could not find the confirm button; nothing was deleted."
+    _click(*pos)
+
+    deadline = time.time() + 25
     while time.time() < deadline:
         time.sleep(0.6)
-        after = _preview(_row(win, chat))
+        after = _preview(_row(win, who))
         if after and after != before:
-            return ("Deleted the last message in %r: the chat preview changed "
-                    "from %r to %r." % (chat, before[:60], after[:60]))
-    return ("I could not confirm the deletion - the chat preview for %r did not "
-            "change. I am not claiming it was deleted." % chat)
+            return ("Deleted the last message in %r: preview %r -> %r."
+                    % (who, before[:50], after[:50]))
+    return "I could not confirm the deletion (preview unchanged); I am not claiming it."
 
 
 def telegram_delete(parameters, player=None, session_memory=None) -> str:
     p = parameters if isinstance(parameters, dict) else {}
-    chat = p.get("chat") or p.get("name") or p.get("to") or p.get("recipient") or ""
-    return delete_last_message(str(chat), player=player)
+    return delete_last_message(str(p.get("chat") or p.get("name") or ""), player=player)
+
+
+def run(parameters, player=None, session_memory=None):
+    return telegram_delete(parameters, player=player, session_memory=session_memory)
