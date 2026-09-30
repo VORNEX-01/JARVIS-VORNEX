@@ -1,5 +1,5 @@
 """
-Action discovery, validation, and dispatch — the built-in twin of plugin_loader.
+Trusted built-in action discovery, validation, and dispatch.
 
 Every actions/*.py that exposes a module-level ``TOOL`` dict is auto-discovered
 here, exactly like a drop-in plugin, so main.py never has to hardcode a tool
