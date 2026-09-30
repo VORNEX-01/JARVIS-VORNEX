@@ -79,7 +79,6 @@ from memory.config_manager     import (
     get_push_to_talk_enabled, get_thinking_enabled, get_turn_tuning, get_voice,
     get_wake_word_enabled, save_wake_word_enabled,    get_input_device, get_output_device,
 )
-from core.plugin_loader        import discover_plugins
 from core                      import undo as undo_stack
 from core                      import confirm as confirm_gate
 from core                      import audio_devices
@@ -658,19 +657,6 @@ class JarvisLive:
             logger=lambda msg: print(f"[Actions] {msg}"),
         )
 
-        # Plugins must not collide with either an inline tool or a discovered action.
-        _core_names = _inline_names | self._action_registry.names()
-        self._plugin_registry = discover_plugins(
-            plugins_dir=_base_dir / "plugins",
-            core_tool_names=_core_names,
-            # Console gets the full boot transcript; the activity log gets only
-            # what the user has to know about. Every plugin loading correctly is
-            # the expected case and does not belong in their conversation.
-            logger=lambda msg: print(f"[Plugins] {msg}"),
-            notify=lambda msg: self.ui.write_log(f"SYS: {msg}"),
-        )
-        self.ui.get_plugins = self._plugin_registry.list_for_ui
-        self.ui.get_plugin_settings = self._plugin_registry.settings_schemas  # ⚙ settings tab
         self.ui.request_say = self.plugin_say   # plugins: mid-task speech channel
 
         # ── Wake word ────────────────────────────────────────────────────────
@@ -1047,9 +1033,10 @@ class JarvisLive:
         # the host, the capability list from the registries that were just
         # discovered. Rename the assistant, add a plugin or move to another OS
         # and this follows without anyone editing a prompt.
-        _all_decls = (TOOL_DECLARATIONS
-                      + self._action_registry.get_tool_declarations()
-                      + self._plugin_registry.get_tool_declarations())
+        _all_decls = (
+            TOOL_DECLARATIONS
+            + self._action_registry.get_tool_declarations()
+        )
         _names = {(d.get("name") if isinstance(d, dict) else getattr(d, "name", ""))
                   for d in _all_decls}
         sys_prompt = _render_prompt(sys_prompt, {
@@ -1287,14 +1274,7 @@ class JarvisLive:
                     self.ui.show_content(_label, r)
 
             else:
-                if self._plugin_registry.has(name):
-                    r = await loop.run_in_executor(
-                        None,
-                        lambda: self._plugin_registry.run(name, args, player=self.ui, session_memory=None)
-                    )
-                    result = r or "Done."
-                else:
-                    result = f"Unknown tool: {name}"
+                result = f"Unknown tool: {name}"
 
         except Exception as e:
             self._supervisor.state.tool_failures += 1
@@ -1318,8 +1298,7 @@ class JarvisLive:
         # something like a phone call already ringing, is exactly the noise the
         # non-blocking call was meant to avoid. Tools that declared nothing get
         # the API default and behave as they always have.
-        _sched = (self._action_registry.scheduling(name)
-                  or self._plugin_registry.scheduling(name))
+        _sched = self._action_registry.scheduling(name)
         _extra = {"scheduling": _sched} if _sched else {}
         return types.FunctionResponse(
             id=fc.id, name=name,
