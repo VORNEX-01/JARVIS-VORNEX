@@ -366,7 +366,7 @@ async def _live_turn(parts: list, system: str, key: str, timeout_s: float) -> st
     from google import genai
     from google.genai import types as gtypes
 
-    cl = genai.Client(api_key=key, http_options={"api_version": "v1beta"})
+    cl = genai.Client(api_key=key, http_options={"api_version": "v1alpha"})
     # Silence the persona, or it answers instead of complying.
     #
     # These are conversational models and they behave like it: asked "Reply with
