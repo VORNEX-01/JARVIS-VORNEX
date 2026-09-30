@@ -328,7 +328,6 @@ def save_output_device(name: str) -> None:
 # ── Per-plugin settings ("tokens" / connection details) ───────────────────────
 # Legacy plugin configuration storage removed; durable memory config remains here.
 # and the settings UI renders + persists them WITHOUT any core edit — keeping the
-# drop-in model intact. Values live under plugin_config[<namespace>][<key>].
 # A namespace defaults to the plugin name, but a suite of plugins (e.g. the
 # several printer plugins) can share ONE namespace.
 
