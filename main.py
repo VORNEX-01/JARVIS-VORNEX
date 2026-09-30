@@ -1550,6 +1550,14 @@ class JarvisLive:
 
                             full_in = " ".join(in_buf).strip()
                             if full_in:
+                                try:
+                                    from core import confirm as _confirm
+                                    if _confirm.try_voice(full_in):
+                                        self.ui.write_log("SYS: Voice confirmation received.")
+                                        in_buf = []
+                                        continue
+                                except Exception:
+                                    pass
                                 self._last_out_logged = ""   # new exchange
                                 self.ui.write_log(f"You: {full_in}")
                                 self._session_log.append(f"User: {full_in}")
@@ -1738,6 +1746,36 @@ class JarvisLive:
             self.set_speaking(False)
             stream.stop()
             stream.close()
+
+
+    async def _watch_confirm_results(self) -> None:
+        """Speak confirmed-action results back to the user (truthful, no guessing)."""
+        from core import confirm
+        while True:
+            await asyncio.sleep(0.25)
+            item = confirm.pop_result()
+            if not item:
+                continue
+            title, result = item
+            try:
+                self.ui.write_log(f"SYS: {result}")
+            except Exception:
+                pass
+            # Tell the live model the TRUE outcome so it does not guess/lie.
+            if self.session and self._awake:
+                msg = (
+                    "[CONFIRM_RESULT]\n"
+                    f"{result}\n\n"
+                    "Say ONE short sentence in the user's language that matches this result exactly. "
+                    "Do not embellish or claim success if the result says it failed."
+                )
+                try:
+                    await self.session.send_client_content(
+                        turns={"role": "user", "parts": [{"text": msg}]},
+                        turn_complete=True,
+                    )
+                except Exception:
+                    pass
 
     # ── Morning briefing ────────────────────────────────────────────────────────
 
@@ -2151,6 +2189,7 @@ class JarvisLive:
                     tg.create_task(self._send_realtime())
                     tg.create_task(self._listen_audio())
                     tg.create_task(self._receive_audio())
+                    tg.create_task(self._watch_confirm_results())
                     tg.create_task(self._play_audio())
                     tg.create_task(self._run_system_monitor())
                     tg.create_task(self._run_background_monitor())

@@ -237,6 +237,7 @@ def _handler(parameters=None, player=None, session_memory=None):
         from core import confirm
         return confirm.request(
             key="telegram_delete",
+            voice_only=True,
             title="Delete the last message in %s?" % (who or "the open chat"),
             detail="Both sides - also from the other person's Telegram.",
             run=lambda: delete_last_message(who, player=player))
