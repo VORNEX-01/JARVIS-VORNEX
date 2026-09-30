@@ -592,6 +592,8 @@ class JarvisLive:
         self.ui.on_voice_change   = self._on_voice_change     # voice picker → rebuild session
         self.ui.on_audio_device_change = self._on_audio_device_change
         self._reconnect_event: asyncio.Event | None = None
+        self._reconnect_generation = 0
+        self._reconnect_verified_generation = 0
         self._reconnect_keep = True   # False → next rebuild drops the resumption handle
 
         # ── Session resumption ─────────────────────────────────────────
@@ -624,6 +626,10 @@ class JarvisLive:
         self._executor.register(
             "runtime_status",
             self._controlled_runtime_status,
+        )
+        self._executor.register(
+            "request_reconnect",
+            self._controlled_request_reconnect,
         )
         self._supervisor = Supervisor(
             check_fn=self._supervisor_health_check,
@@ -817,6 +823,7 @@ class JarvisLive:
         ev   = self._reconnect_event
         self._reconnect_keep   = keep_context
         self._reconnect_reason = reason
+        self._reconnect_generation += 1
         if loop and ev is not None:
             loop.call_soon_threadsafe(ev.set)
 
@@ -1987,6 +1994,26 @@ class JarvisLive:
             f"failures={snapshot['failures']}",
         )
 
+    def _controlled_request_reconnect(self):
+        from core.action_result import unverified
+
+        loop = getattr(self, "_loop", None)
+        ev = getattr(self, "_reconnect_event", None)
+
+        if loop is None or ev is None:
+            return unverified(
+                "Reconnect request not available",
+            )
+
+        self.request_reconnect(
+            keep_context=True,
+            reason="controlled recovery",
+        )
+
+        return unverified(
+            "Reconnect requested; awaiting runtime verification",
+        )
+
     def _controlled_runtime_status(self):
         from core.action_result import verified
 
@@ -2310,6 +2337,18 @@ class JarvisLive:
 
                     print("[VORNEX] Connected.")
                     self._supervisor.state.session_alive = True
+
+                    if self._reconnect_generation > self._reconnect_verified_generation:
+                        self._reconnect_verified_generation = self._reconnect_generation
+                        self._event_bus.emit(
+                            "reconnect_verified",
+                            generation=self._reconnect_verified_generation,
+                            reason=getattr(self, "_reconnect_reason", "") or "settings",
+                            keep_context=getattr(self, "_reconnect_keep", True),
+                        )
+                        self.ui.write_log(
+                            "SYS: Reconnect verified — live session is active."
+                        )
                     self._supervisor.state.awake = self._awake
                     self._supervisor.state.speaking = self._is_speaking
                     self._supervisor.state.last_user_speech = self._last_user_speech

@@ -17,6 +17,7 @@ class DiagnosticState:
     events: int = 0
     tool_failures: int = 0
     reconnects: int = 0
+    reconnect_verified: int = 0
     resource_warnings: int = 0
     health_failures: int = 0
     last_event: str = ""
@@ -46,6 +47,9 @@ class DiagnosticController:
         elif kind == "reconnect_requested":
             self.state.reconnects += 1
 
+        elif kind == "reconnect_verified":
+            self.state.reconnect_verified += 1
+
         elif kind == "resource_warning":
             self.state.resource_warnings += 1
 
@@ -70,6 +74,7 @@ class DiagnosticController:
             "events": self.state.events,
             "tool_failures": self.state.tool_failures,
             "reconnects": self.state.reconnects,
+            "reconnect_verified": self.state.reconnect_verified,
             "resource_warnings": self.state.resource_warnings,
             "health_failures": self.state.health_failures,
             "last_event": self.state.last_event,
