@@ -87,6 +87,7 @@ from core.action_loader        import discover_actions
 from core.supervisor import Supervisor
 from core.event_bus import EventBus
 from core.diagnostic_controller import DiagnosticController
+from core.decision_controller import DecisionController
 from core.echo                 import EchoGuard
 from core.viseme               import VisemeStream
 from core.wake_word            import (
@@ -613,6 +614,7 @@ class JarvisLive:
         self._sys_monitor      = SystemMonitor()  # persistent cooldown state
         self._event_bus = EventBus(maxsize=128)
         self._diagnostics = DiagnosticController()
+        self._decisions = DecisionController()
         self._supervisor = Supervisor(
             check_fn=self._supervisor_health_check,
             event_fn=self._on_supervisor_event,
@@ -1978,6 +1980,17 @@ class JarvisLive:
             event = await self._event_bus.get()
             try:
                 self._diagnostics.handle(event)
+
+                decision = self._decisions.decide(
+                    event,
+                    self._diagnostics,
+                )
+
+                if decision is not None:
+                    self.ui.write_log(
+                        f"DECISION: {decision.kind} "
+                        f"{decision.data}".strip()
+                    )
 
                 kind = event.kind
                 data = event.data
