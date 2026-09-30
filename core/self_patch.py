@@ -39,5 +39,19 @@ def apply_edit(path, new_source, message="self-patch", smoke=True):
         if not ok:
             path.write_text(old, encoding="utf-8")
             return False, "ROLLED BACK: import failed (%s)" % out.strip()[-300:]
-    _git("add", str(path)); _git("commit", "-q", "-m", message)
+    add_result = _git("add", str(path))
+    if add_result.returncode != 0:
+        path.write_text(old, encoding="utf-8")
+        return False, "ROLLED BACK: git add failed (%s)" % (
+            (add_result.stderr or add_result.stdout).strip()[-300:]
+        )
+
+    commit_result = _git("commit", "-q", "-m", message)
+    if commit_result.returncode != 0:
+        path.write_text(old, encoding="utf-8")
+        _git("restore", "--staged", "--", str(path))
+        return False, "ROLLED BACK: git commit failed (%s)" % (
+            (commit_result.stderr or commit_result.stdout).strip()[-300:]
+        )
+
     return True, "applied, compile+import OK, committed"

@@ -84,6 +84,8 @@ from core                      import undo as undo_stack
 from core                      import confirm as confirm_gate
 from core                      import audio_devices
 from core.action_loader        import discover_actions
+from core.supervisor import Supervisor
+from core.event_bus import EventBus
 from core.echo                 import EchoGuard
 from core.viseme               import VisemeStream
 from core.wake_word            import (
@@ -608,6 +610,14 @@ class JarvisLive:
         self._dashboard     = None
         self._briefing_sent    = False          # morning briefing fires once per process
         self._sys_monitor      = SystemMonitor()  # persistent cooldown state
+        self._event_bus = EventBus(maxsize=128)
+        self._supervisor = Supervisor(
+            check_fn=self._supervisor_health_check,
+            event_fn=self._on_supervisor_event,
+            event_bus=self._event_bus,
+            interval=5.0,
+            health_interval=15.0,
+        )
         self._proactive        = ProactiveEngine()
         self._last_user_speech = time.monotonic()  # updated on every user utterance
         self._session_log: list[str] = []          # conversation turns for end-of-session summary
@@ -694,6 +704,8 @@ class JarvisLive:
             return
         self._awake = True
         self._last_user_speech = time.monotonic()   # start the auto-sleep clock now
+        self._supervisor.state.awake = True
+        self._supervisor.state.last_user_speech = self._last_user_speech
         if not self.ui.muted:
             self.ui.set_state("LISTENING")
         self.ui.write_log(f"SYS: Awake — {reason}.")
@@ -702,6 +714,7 @@ class JarvisLive:
         if not self._awake:
             return
         self._awake = False
+        self._supervisor.state.awake = False
         self.set_speaking(False)
         self.ui.set_state("SLEEPING")
         self.ui.write_log(f"SYS: Sleeping — {reason}. Say 'Hey Jarvis' to wake me.")
@@ -769,10 +782,7 @@ class JarvisLive:
 
         async def _say():
             try:
-                await self.session.send_client_content(
-                    turns={"role": "user", "parts": [{"text": instruction}]},
-                    turn_complete=True,
-                )
+                await self._queue_live_text(instruction)
             except Exception as e:
                 print(f"[PluginSay] {e}")
 
@@ -822,6 +832,14 @@ class JarvisLive:
         self._reconnect_event.clear()
         keep   = self._reconnect_keep
         reason = getattr(self, "_reconnect_reason", "") or "settings"
+
+        self._supervisor.state.reconnects += 1
+        self._event_bus.emit(
+            "reconnect_requested",
+            reason=reason,
+            keep_context=keep,
+        )
+
         self.ui.write_log(
             f"SYS: Applying {reason} — reconnecting"
             + ("..." if keep else " (starting a fresh conversation)...")
@@ -851,10 +869,7 @@ class JarvisLive:
             self.ui.write_log("SYS: I'm asleep — say 'Hey Jarvis' or tap WAKE NOW first.")
             return
         asyncio.run_coroutine_threadsafe(
-            self.session.send_client_content(
-                turns={"role": "user", "parts": [{"text": text}]},
-                turn_complete=True
-            ),
+            self._queue_live_text(text),
             self._loop
         )
 
@@ -865,6 +880,7 @@ class JarvisLive:
     def set_speaking(self, value: bool):
         with self._speaking_lock:
             self._is_speaking = value
+        self._supervisor.state.speaking = bool(value)
         if value:
             self._tail_until = 0.0
         else:
@@ -950,10 +966,7 @@ class JarvisLive:
         if not self._loop or not self.session:
             return
         asyncio.run_coroutine_threadsafe(
-            self.session.send_client_content(
-                turns={"role": "user", "parts": [{"text": text}]},
-                turn_complete=True
-            ),
+            self._queue_live_text(text),
             self._loop
         )
 
@@ -1262,6 +1275,12 @@ class JarvisLive:
                     result = f"Unknown tool: {name}"
 
         except Exception as e:
+            self._supervisor.state.tool_failures += 1
+            self._event_bus.emit(
+                "tool_failure",
+                tool=name,
+                error=str(e),
+            )
             result = f"Tool '{name}' failed: {e}"
             traceback.print_exc()
             self.speak_error(name, e)
@@ -1300,6 +1319,7 @@ class JarvisLive:
                     mime_type="audio/pcm;rate=16000",
                 )
             )
+            self._supervisor.state.last_audio_tx = time.monotonic()
 
     async def _listen_audio(self):
         print("[VORNEX] 🎤 Mic started")
@@ -1474,6 +1494,7 @@ class JarvisLive:
         try:
             while True:
                 async for response in self.session.receive():
+                    self._supervisor.state.last_model_rx = time.monotonic()
 
                     # ── Session resumption ───────────────────────────────────
                     # The server sends this periodically. `resumable` goes false
@@ -1537,6 +1558,7 @@ class JarvisLive:
                             if txt:
                                 in_buf.append(txt)
                                 self._last_user_speech = time.monotonic()
+                                self._supervisor.state.last_user_speech = self._last_user_speech
 
                         if sc.turn_complete:
                             if self._turn_done_event:
@@ -1778,10 +1800,7 @@ class JarvisLive:
                     "Do not embellish or claim success if the result says it failed."
                 )
                 try:
-                    await self.session.send_client_content(
-                        turns={"role": "user", "parts": [{"text": msg}]},
-                        turn_complete=True,
-                    )
+                    await self._queue_live_text(msg)
                 except Exception:
                     pass
 
@@ -1850,10 +1869,7 @@ class JarvisLive:
             self._turn_done_event.clear()
 
         await asyncio.sleep(3.0)
-        await self.session.send_client_content(
-            turns={"role": "user", "parts": [{"text": p1}]},
-            turn_complete=True,
-        )
+        await self._queue_live_text(p1)
         print("[VORNEX] Briefing phase 1 (greeting) sent.")
 
         # ── Phase 2: fire as soon as Phase 1 audio is done ───────────────────
@@ -1904,10 +1920,7 @@ class JarvisLive:
                     "examples." + lang_str
                 )
 
-                await self.session.send_client_content(
-                    turns={"role": "user", "parts": [{"text": p2}]},
-                    turn_complete=True,
-                )
+                await self._queue_live_text(p2)
                 print("[VORNEX] Briefing phase 2 (news) sent.")
             except Exception as e:
                 print(f"[Briefing] Phase 2 error: {e}")
@@ -1948,6 +1961,75 @@ class JarvisLive:
 
     # ── System monitor ──────────────────────────────────────────────────────────
 
+    def _supervisor_health_check(self) -> dict:
+        """Cheap synchronous health snapshot for the central supervisor."""
+        try:
+            status = get_system_status()
+            if isinstance(status, dict):
+                return status
+        except Exception as e:
+            print(f"[Supervisor] health snapshot failed: {e}")
+        return {}
+
+    async def _event_bus_loop(self):
+        while True:
+            event = await self._event_bus.get()
+            try:
+                kind = event.kind
+                data = event.data
+
+                self.ui.write_log(
+                    f"BUS: {kind} "
+                    f"{data}".strip()
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                print(f"[EventBus] {e}")
+            finally:
+                self._event_bus.task_done()
+
+    def _on_supervisor_event(self, event: dict) -> None:
+        """Receive supervisor events without executing autonomous actions yet."""
+        kind = event.get("kind", "unknown")
+        self.ui.write_log(
+            f"SYS: Supervisor — {kind}: "
+            f"{event.get('resource', '')} {event.get('value', '')}".strip()
+        )
+
+        # Keep this layer observational for now.
+        # Autonomous decisions/actions will be connected through a controlled
+        # event queue after the execution path is centralized.
+
+    async def _live_send_loop(self) -> None:
+        while True:
+            item = await self._live_send_queue.get()
+            try:
+                if not self.session:
+                    continue
+
+                turns = item.get("turns")
+                turn_complete = item.get("turn_complete", True)
+
+                await self.session.send_client_content(
+                    turns=turns,
+                    turn_complete=turn_complete,
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                print(f"[LiveSend] {e}")
+            finally:
+                self._live_send_queue.task_done()
+
+    async def _queue_live_text(self, text: str) -> None:
+        if not text or not self.session:
+            return
+        await self._live_send_queue.put({
+            "turns": {"role": "user", "parts": [{"text": text}]},
+            "turn_complete": True,
+        })
+
     async def _run_system_monitor(self) -> None:
         """Background task: voice alerts when metrics exceed thresholds."""
         while True:
@@ -1961,12 +2043,9 @@ class JarvisLive:
             if speaking or (time.monotonic() - self._last_user_speech) < 10:
                 continue
             try:
-                await self.session.send_client_content(
-                    turns={"role": "user", "parts": [{"text": alert}]},
-                    turn_complete=True,
-                )
+                await self._queue_live_text(alert)
             except Exception as e:
-                print(f"[Monitor] ⚠️ Could not send alert: {e}")
+                print(f"[Monitor] ⚠️ Could not queue alert: {e}")
 
     # ── Background monitor ──────────────────────────────────────────────────────
 
@@ -1991,10 +2070,7 @@ class JarvisLive:
                                 f"Inform the user about this development naturally in {lang}. "
                                 "One brief sentence only."
                             )
-                            await self.session.send_client_content(
-                                turns={"role": "user", "parts": [{"text": msg}]},
-                                turn_complete=True,
-                            )
+                            await self._queue_live_text(msg)
                             print("[VORNEX] Monitor alert sent.")
                             await asyncio.sleep(6)   # gap between consecutive alerts
                     except Exception as e:
@@ -2034,10 +2110,7 @@ class JarvisLive:
                     monitors     = monitors or None,
                     recent_turns = recent_turns or None,
                 )
-                await self.session.send_client_content(
-                    turns={"role": "user", "parts": [{"text": prompt}]},
-                    turn_complete=True,
-                )
+                await self._queue_live_text(prompt)
                 print("[VORNEX] Proactive check-in.")
             except Exception as e:
                 print(f"[Proactive] ⚠️ {e}")
@@ -2087,10 +2160,7 @@ class JarvisLive:
                     # has no desktop WAKE button — so it wakes VORNEX if asleep.
                     if self._wake_enabled and not self._awake:
                         self.wake(reason="remote command")
-                    await self.session.send_client_content(
-                        turns={"role": "user", "parts": [{"text": text}]},
-                        turn_complete=True,
-                    )
+                    await self._queue_live_text(text)
                     self.ui.write_log(f"[Web]: {text}")
                 else:
                     print(f"[Dashboard] Dropped command (no session): {text}")
@@ -2160,6 +2230,7 @@ class JarvisLive:
                     self.session          = session
                     self.audio_in_queue   = asyncio.Queue()
                     self.out_queue        = asyncio.Queue(maxsize=200)
+                    self._live_send_queue = asyncio.Queue(maxsize=32)
                     self._turn_done_event = asyncio.Event()
 
                     # Reset transient state that must not carry over from a previous session
@@ -2172,6 +2243,12 @@ class JarvisLive:
                     self._confirm_busy        = False  # block mic streaming while a confirmed action runs
 
                     print("[VORNEX] Connected.")
+                    self._supervisor.state.session_alive = True
+                    self._supervisor.state.awake = self._awake
+                    self._supervisor.state.speaking = self._is_speaking
+                    self._supervisor.state.last_user_speech = self._last_user_speech
+                    self._supervisor.start()
+                    self._live_send_task = asyncio.create_task(self._live_send_loop())
                     if _resumed_with:
                         # Say it plainly: the difference between "it reconnected"
                         # and "it reconnected and still knows what we were doing"
@@ -2199,6 +2276,7 @@ class JarvisLive:
                     tg.create_task(self._listen_audio())
                     tg.create_task(self._receive_audio())
                     tg.create_task(self._watch_confirm_results())
+                    tg.create_task(self._event_bus_loop())
                     tg.create_task(self._play_audio())
                     tg.create_task(self._run_system_monitor())
                     tg.create_task(self._run_background_monitor())
@@ -2313,6 +2391,18 @@ class JarvisLive:
                 else:
                     self._conn_backoff = 3
             finally:
+                self._supervisor.state.session_alive = False
+                self._supervisor.state.awake = False
+                await self._supervisor.stop()
+
+                if self._live_send_task:
+                    self._live_send_task.cancel()
+                    try:
+                        await self._live_send_task
+                    except asyncio.CancelledError:
+                        pass
+                    self._live_send_task = None
+
                 self.session = None
                 # Only save if there was a real conversation (≥3 turns)
                 if len(self._session_log) >= 3:
