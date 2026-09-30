@@ -1041,14 +1041,8 @@ class JarvisLive:
             # Hand back the handle captured from the last session_resumption
             # update. `handle=None` is exactly the old behaviour (ask for
             # handles, start fresh), so the first connect of a run is unchanged.
-            session_resumption=types.SessionResumptionConfig(
-                handle=self._resume_handle
-            ),
-            # Sliding-window compression: session never dies from a full context
-            # window — VORNEX can stay in one conversation for hours
-            context_window_compression=types.ContextWindowCompressionConfig(
-                sliding_window=types.SlidingWindow(),
-            ),
+            # session_resumption disabled - not supported on gemini-3.1
+            # context_window_compression disabled - not supported on gemini-3.1
             speech_config=types.SpeechConfig(
                 voice_config=types.VoiceConfig(
                     prebuilt_voice_config=types.PrebuiltVoiceConfig(
