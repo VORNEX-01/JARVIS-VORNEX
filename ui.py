@@ -2713,7 +2713,6 @@ class MainWindow(QMainWindow):
         self.on_audio_device_change = None  # callable: () -> None — reopen audio streams
         self._confirm_overlay  = None   # live ConfirmBanner, if one is on screen
         self.get_plugins       = None   # callable: () -> list[dict], set by JarvisLive
-        self.get_plugin_settings = None # callable: () -> list[dict] settings schemas, set by JarvisLive
         self.on_wake_toggle    = None   # callable: (enable: bool) -> str, set by JarvisLive
         self.on_wake_manual    = None   # callable: () -> None — manual sleep/wake
         self.on_push_to_talk   = None   # callable: (enable: bool) -> str scope
@@ -5019,12 +5018,6 @@ class JarvisUI:
         self._win.get_plugins = cb
 
     @property
-    def get_plugin_settings(self):
-        return self._win.get_plugin_settings
-
-    @get_plugin_settings.setter
-    def get_plugin_settings(self, cb):
-        self._win.get_plugin_settings = cb
 
     @property
     def on_wake_toggle(self):
