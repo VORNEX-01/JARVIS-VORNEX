@@ -67,6 +67,56 @@ def _preview(row):
     return " ".join(s.split())
 
 
+
+def _norm_title(s: str) -> str:
+    s = str(s or "").strip()
+    # strip invisible RTL/LTR marks
+    s = s.lstrip("\u200e\u200f\u202a\u202b\u202c\u202d\u202e")
+    # drop trailing counts like (156952)
+    s = re.sub(r"\s*\(\d+\)\s*$", "", s).strip()
+    # normalise dashes
+    s = s.replace("–", "-").replace("—", "-")
+    return " ".join(s.split())
+
+
+def _open_chat_title_uia(win) -> str:
+    """Best-effort: read the open chat title from Telegram's header area via UIA."""
+    try:
+        r = win.get("rect") or (0, 0, 0, 0)
+        mid = (r[0] + r[2]) // 2
+        top_limit = r[1] + 220   # only header band; avoid message bubbles
+        best = ("", 0.0, 10**9)  # (text, score, y)
+        for it in wa.inventory(win):
+            rect = it.get("rect")
+            if not rect:
+                continue
+            # right pane only
+            if rect[0] <= mid:
+                continue
+            # header band only
+            if rect[1] > top_limit:
+                continue
+            nm = str(it.get("name") or "").strip()
+            val = str(it.get("value") or "").strip()
+            cand = _norm_title(nm) or _norm_title(val)
+            if not cand or len(cand) > 60:
+                continue
+            # Prefer top-most readable text
+            y = rect[1]
+            # score: higher is better, y lower is better
+            sc = 0.0
+            try:
+                sc = float(da._names.score(cand, cand))
+            except Exception:
+                sc = 0.0
+            # just pick the top-most non-empty header text
+            if y < best[2]:
+                best = (cand, sc, y)
+        return best[0]
+    except Exception:
+        return ""
+
+
 def _anchor(win):
     r = win["rect"]; mid = (r[0] + r[2]) // 2
     edits = [it for it in wa.inventory(win)
@@ -140,19 +190,40 @@ def delete_last_message(chat="", player=None) -> str:
     disp = str(item.get("name") or "").split(",", 1)[0].strip() or who
 
     # the right-click must land in the RIGHT conversation
-    if str(da._chat_name(win) or "").casefold().strip() != disp.casefold():
-        rr = item["rect"]
-        _click((rr[0] + rr[2]) // 2, (rr[1] + rr[3]) // 2)
-        time.sleep(1.6)
-        now = str(da._chat_name(win) or "")
-        log.append("opened %r (title now %r)" % (disp, now))
-        if now.casefold().strip() != disp.casefold():
-            return ("I could not open the chat with %r (the open chat is %r), so I "
-                    "touched nothing." % (disp, now))
-    else:
-        log.append("chat %r already open" % disp)
+    now_title = _norm_title(_open_chat_title_uia(win) or str(da._chat_name(win) or ""))
+    want = _norm_title(disp)
 
-    before = _preview(_row(win, who))
+    def _match(a: str, b: str) -> bool:
+        if not a or not b:
+            return False
+        if a.casefold() == b.casefold():
+            return True
+        try:
+            return da._names.score(a, b) >= 0.78
+        except Exception:
+            return b.casefold() in a.casefold()
+
+    if not _match(now_title, want):
+        # Prefer UIA click to avoid pixel drift
+        try:
+            if isinstance(item, dict) and "i" in item:
+                wa.click_item(win, int(item["i"]))
+            else:
+                rr = item["rect"]
+                _click((rr[0] + rr[2]) // 2, (rr[1] + rr[3]) // 2)
+        except Exception:
+            rr = item["rect"]
+            _click((rr[0] + rr[2]) // 2, (rr[1] + rr[3]) // 2)
+
+        time.sleep(1.6)
+        now2 = _norm_title(_open_chat_title_uia(win) or str(da._chat_name(win) or ""))
+        log.append("opened %r (header/title now %r)" % (disp, now2))
+        if not _match(now2, want):
+            return ("I could not open the chat with %r (header/title reads %r), so I touched nothing. [%s]"
+                    % (disp, now2, "; ".join(log)))
+    else:
+        log.append("chat %r already open (header/title %r)" % (disp, now_title))
+before = _preview(_row(win, who))
     log.append("before %r" % before[:40])
 
     x, y = _anchor(win)
