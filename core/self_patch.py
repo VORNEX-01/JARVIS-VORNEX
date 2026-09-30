@@ -29,12 +29,13 @@ def apply_edit(path, new_source, message="self-patch", smoke=True):
         validate_candidate(old, new_source, str(path))
     except Exception as e:
         return False, "REFUSED by guard: %s" % e
-    try:
-        compile(new_source, str(path), "exec")
-    except SyntaxError as e:
-        return False, "REFUSED: does not compile (%s)" % e
+    if path.suffix == ".py":
+        try:
+            compile(new_source, str(path), "exec")
+        except SyntaxError as e:
+            return False, "REFUSED: does not compile (%s)" % e
     path.write_text(new_source, encoding="utf-8")
-    if smoke:
+    if smoke and path.suffix == ".py":
         ok, out = _smoke(path)
         if not ok:
             path.write_text(old, encoding="utf-8")
