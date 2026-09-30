@@ -21,6 +21,10 @@ class Decision:
 
 
 class DecisionController:
+    DECISION_ACTIONS = {
+        "diagnose_health_check": "health_check",
+    }
+
     ALLOWED_EVENTS = {
         "tool_failure",
         "resource_warning",
@@ -61,6 +65,7 @@ class DecisionController:
                 reason="health_check_failed",
                 data={
                     "error": data.get("error", ""),
+                    "action": self.DECISION_ACTIONS["diagnose_health_check"],
                 },
             )
 

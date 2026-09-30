@@ -88,6 +88,7 @@ from core.supervisor import Supervisor
 from core.event_bus import EventBus
 from core.diagnostic_controller import DiagnosticController
 from core.decision_controller import DecisionController
+from core.controlled_executor import ControlledExecutor
 from core.echo                 import EchoGuard
 from core.viseme               import VisemeStream
 from core.wake_word            import (
@@ -615,6 +616,11 @@ class JarvisLive:
         self._event_bus = EventBus(maxsize=128)
         self._diagnostics = DiagnosticController()
         self._decisions = DecisionController()
+        self._executor = ControlledExecutor()
+        self._executor.register(
+            "health_check",
+            self._controlled_health_check,
+        )
         self._supervisor = Supervisor(
             check_fn=self._supervisor_health_check,
             event_fn=self._on_supervisor_event,
@@ -1965,6 +1971,18 @@ class JarvisLive:
 
     # ── System monitor ──────────────────────────────────────────────────────────
 
+    def _controlled_health_check(self):
+        from core.action_result import verified
+
+        snapshot = self._supervisor.snapshot()
+
+        return verified(
+            "Supervisor health snapshot collected",
+            f"ticks={snapshot['ticks']}, "
+            f"session_alive={snapshot['session_alive']}, "
+            f"failures={snapshot['failures']}",
+        )
+
     def _supervisor_health_check(self) -> dict:
         """Cheap synchronous health snapshot for the central supervisor."""
         try:
@@ -1991,6 +2009,18 @@ class JarvisLive:
                         f"DECISION: {decision.kind} "
                         f"{decision.data}".strip()
                     )
+
+                    if decision.kind == "diagnose_health_check":
+                        action = decision.data.get("action", "")
+                        result = self._executor.execute(action)
+
+                        self._event_bus.emit(
+                            "controlled_action_result",
+                            action=action,
+                            status=result.status,
+                            summary=result.summary,
+                            evidence=result.evidence,
+                        )
 
                 kind = event.kind
                 data = event.data
