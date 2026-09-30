@@ -235,6 +235,12 @@ def _handler(parameters=None, player=None, session_memory=None):
     who = str(p.get("chat") or p.get("receiver") or p.get("name") or "").strip()
     try:
         from core import confirm
+        # If already pending, do NOT create a new code
+        if confirm.pending_title():
+            code = confirm.pending_code()
+            return ("[CONFIRMATION_PENDING] Awaiting confirmation. "
+                    f"Say: 'تایید {code}' (or 'confirm {code}').")
+
         return confirm.request(
             key="telegram_delete",
             voice_only=True,
