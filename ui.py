@@ -2712,7 +2712,6 @@ class MainWindow(QMainWindow):
         self.on_voice_change   = None   # callable: () -> None — rebuild session with new voice
         self.on_audio_device_change = None  # callable: () -> None — reopen audio streams
         self._confirm_overlay  = None   # live ConfirmBanner, if one is on screen
-        self.get_plugins       = None   # callable: () -> list[dict], set by JarvisLive
         self.on_wake_toggle    = None   # callable: (enable: bool) -> str, set by JarvisLive
         self.on_wake_manual    = None   # callable: () -> None — manual sleep/wake
         self.on_push_to_talk   = None   # callable: (enable: bool) -> str scope
@@ -5009,13 +5008,6 @@ class JarvisUI:
         """Thread-safe: take the gate down."""
         self._win._confirm_hide_sig.emit()
 
-    @property
-    def get_plugins(self):
-        return self._win.get_plugins
-
-    @get_plugins.setter
-    def get_plugins(self, cb):
-        self._win.get_plugins = cb
 
     @property
 
