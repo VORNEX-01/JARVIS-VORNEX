@@ -1759,7 +1759,8 @@ class JarvisLive:
 
         # Start fetching news immediately — runs in parallel while phase 1 plays
         loop = asyncio.get_event_loop()
-        news_future = loop.run_in_executor(None, _fetch_news_sync, "top world news today")
+        # news_future removed - caused 1011 session crash
+        news_future = asyncio.get_event_loop().run_in_executor(None, lambda: None)
 
         await asyncio.sleep(0.3)
         if not self.session:
