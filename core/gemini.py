@@ -114,17 +114,17 @@ SEARCH = "search"  # grounded search — REST only, see below
 LIVE = "live"
 
 _LADDERS = {
-    FAST: (LIVE, "gemini-3.5-flash", "gemini-2.5-flash"),
-    SMART: (LIVE, "gemini-3.5-flash", "gemini-2.5-flash"),
+    FAST: (LIVE, "gemini-2.5-flash", "gemini-2.5-flash"),
+    SMART: (LIVE, "gemini-2.5-flash", "gemini-2.5-flash"),
     # Grounded search needs response.candidates[...].grounding_metadata, which a
     # Live turn does not produce. REST only, and it says so rather than silently
     # returning an answer with no sources behind it.
-    SEARCH: ("gemini-3.5-flash", "gemini-2.5-flash"),
+    SEARCH: ("gemini-2.5-flash", "gemini-2.5-flash"),
 }
 
 # The Live model to use for one-shot calls. main.py owns the real one; this is
 # only the fallback for when this module is imported without it (tests).
-_LIVE_FALLBACK = "models/gemini-3.1-flash-live-preview"
+_LIVE_FALLBACK = "models/gemini-2.0-flash-live-001"
 
 # How many one-shot Live sessions may exist at once.
 #
