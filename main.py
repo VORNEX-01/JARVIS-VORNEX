@@ -2157,7 +2157,7 @@ class JarvisLive:
                     # Morning briefing — fires once per process launch (if enabled).
                     # Skipped in wake-word mode: it comes up asleep, and a briefing
                     # would mean talking while "asleep".
-                    if not self._briefing_sent and get_brief_enabled() and self._awake:
+                    if False:  # briefing disabled - causes 1011 on gemini-3.1
                         self._briefing_sent = True
                         tg.create_task(self._send_startup_briefing())
 
