@@ -14,7 +14,7 @@ from typing import Callable, Optional
 _INTERVAL = float(os.environ.get("VORNEX_EYE_INTERVAL", "0.35"))
 _AUTO_GAP = float(os.environ.get("VORNEX_EYE_AUTO_GAP", "20"))
 _BUDGET = int(os.environ.get("VORNEX_EYE_DAILY_BUDGET", "600"))
-_AUTO = os.environ.get("VORNEX_EYE_AUTO", "1").lower() not in ("0", "false", "")
+_AUTO = False  # disabled - causes 1011 Live session crash
 _MODEL = os.environ.get("VORNEX_VISION_MODEL", "gemini-3.5-flash")
 
 _lock = threading.Lock()
