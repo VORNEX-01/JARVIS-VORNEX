@@ -216,7 +216,7 @@ def _launch(app: str) -> None:
         print("[desktop_agent] open_app failed:", repr(e))
     try:
         import subprocess
-        subprocess.Popen([app], shell=True)
+        subprocess.Popen([app], shell=False)
     except Exception:
         pass
 

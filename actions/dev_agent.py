@@ -486,7 +486,7 @@ def _open_vscode(project_dir: Path) -> bool:
         r"C:\Program Files\Microsoft VS Code\bin\code.cmd",
     ):
         try:
-            subprocess.Popen([cmd, str(project_dir)], shell=True,
+            subprocess.Popen([cmd, str(project_dir)], shell=False,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             time.sleep(1.5)
             print(f"[DevAgent] 💻 VSCode opened: {project_dir}")

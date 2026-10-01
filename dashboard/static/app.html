@@ -153,17 +153,8 @@
   </footer>
 
   <script>
-    // ── Auth — bearer token ───────────────────────────────────────────────────
-    const _authToken  = sessionStorage.getItem('jarvis_token');
-    const _sessionKey = sessionStorage.getItem('jarvis_key');
-
-    if (!_authToken) {
-      location.replace('/login');
-    }
-
-    function _authHeader() { return { 'Authorization': `Bearer ${_authToken}` }; }
+    // ── Auth — HttpOnly cookie ────────────────────────────────────────────────
     function _authFetch(url, opts = {}) {
-      opts.headers = Object.assign({}, opts.headers, _authHeader());
       return fetch(url, opts);
     }
 
@@ -207,7 +198,7 @@
     const wake  = document.getElementById('wake');
 
     const _wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const _wsUrl   = `${_wsProto}://${location.host}/ws?token=${encodeURIComponent(_authToken)}`;
+    const _wsUrl   = `${_wsProto}://${location.host}/ws`;
     const ws       = new WebSocket(_wsUrl);
 
     ws.onopen    = () => { sys('Remote session active.'); toast('Connected to JARVIS'); };
@@ -298,7 +289,6 @@
 
       const xhr = new XMLHttpRequest();
       xhr.open('POST', '/api/upload');
-      xhr.setRequestHeader('Authorization', `Bearer ${_authToken}`);
 
       xhr.upload.onprogress = (e) => {
         if (!e.lengthComputable) return;
@@ -317,7 +307,7 @@
         if (xhr.status === 200) {
           let savedName = file.name;
           try { savedName = JSON.parse(xhr.responseText).name || file.name; } catch {}
-          const dlUrl = `/uploads/${encodeURIComponent(savedName)}?token=${encodeURIComponent(_authToken)}`;
+          const dlUrl = `/uploads/${encodeURIComponent(savedName)}`;
           if (bar)  { bar.style.width = '100%'; bar.style.background = 'var(--green)'; }
           if (st)   { st.textContent = '✓'; st.className = 'fc-status done'; }
           if (lbl)  lbl.textContent = 'Sent';
@@ -347,7 +337,7 @@
 
     // File received by another WebSocket client (e.g., second open tab)
     function _onFileReceived(m) {
-      const dlUrl = `/uploads/${encodeURIComponent(m.name)}?token=${encodeURIComponent(_authToken)}`;
+      const dlUrl = `/uploads/${encodeURIComponent(m.name)}`;
       const card  = document.createElement('div');
       card.className = 'msg-file';
       card.innerHTML = `
@@ -489,7 +479,7 @@
 
       const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
       const ws = new WebSocket(
-        `${wsProto}://${location.host}/ws/phone-audio?token=${encodeURIComponent(_authToken)}`
+        `${wsProto}://${location.host}/ws/phone-audio`
       );
       ws.binaryType = 'arraybuffer';
 

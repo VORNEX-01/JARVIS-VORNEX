@@ -196,13 +196,51 @@ def brightness_up():
                 capture_output=True).returncode == 0:
             subprocess.run(["brightnessctl", "set", "+10%"], capture_output=True)
         else:
-            subprocess.run(
-                'xrandr --output $(xrandr | grep " connected" | head -1 | cut -d " " -f1)'
-                ' --brightness $(python3 -c "import subprocess; '
-                'b=float(subprocess.check_output([\"xrandr\",\"--verbose\"]).decode()'
-                '.split(\"Brightness:\")[1].split()[0]); print(min(1.0,b+0.1))")',
-                shell=True, capture_output=True
-            )
+            try:
+                xr = subprocess.check_output(
+                    ["xrandr", "--verbose"],
+                    text=True,
+                    stderr=subprocess.DEVNULL,
+                )
+                lines = xr.splitlines()
+                output = next(
+                    (line.split()[0] for line in lines if " connected" in line),
+                    None,
+                )
+                brightness = None
+
+                if output:
+                    in_output = False
+                    for line in lines:
+                        if " connected" in line:
+                            in_output = line.split()[0] == output
+                            continue
+                        if in_output and " disconnected" in line:
+                            break
+                        if in_output and line.strip().startswith("Brightness:"):
+                            try:
+                                brightness = float(
+                                    line.split(":", 1)[1].strip()
+                                )
+                            except ValueError:
+                                brightness = None
+                            break
+
+                if output is not None and brightness is not None:
+                    value = min(1.0, brightness + 0.1)
+                    subprocess.run(
+                        [
+                            "xrandr",
+                            "--output",
+                            output,
+                            "--brightness",
+                            f"{value:.3f}",
+                        ],
+                        capture_output=True,
+                        check=False,
+                    )
+            except Exception as e:
+                print(f"[Settings] Linux brightness up fallback failed: {e}")
     else:
         try:
             subprocess.run(
@@ -225,13 +263,51 @@ def brightness_down():
                 capture_output=True).returncode == 0:
             subprocess.run(["brightnessctl", "set", "10%-"], capture_output=True)
         else:
-            subprocess.run(
-                'xrandr --output $(xrandr | grep " connected" | head -1 | cut -d " " -f1)'
-                ' --brightness $(python3 -c "import subprocess; '
-                'b=float(subprocess.check_output([\"xrandr\",\"--verbose\"]).decode()'
-                '.split(\"Brightness:\")[1].split()[0]); print(max(0.1,b-0.1))")',
-                shell=True, capture_output=True
-            )
+            try:
+                xr = subprocess.check_output(
+                    ["xrandr", "--verbose"],
+                    text=True,
+                    stderr=subprocess.DEVNULL,
+                )
+                lines = xr.splitlines()
+                output = next(
+                    (line.split()[0] for line in lines if " connected" in line),
+                    None,
+                )
+                brightness = None
+
+                if output:
+                    in_output = False
+                    for line in lines:
+                        if " connected" in line:
+                            in_output = line.split()[0] == output
+                            continue
+                        if in_output and " disconnected" in line:
+                            break
+                        if in_output and line.strip().startswith("Brightness:"):
+                            try:
+                                brightness = float(
+                                    line.split(":", 1)[1].strip()
+                                )
+                            except ValueError:
+                                brightness = None
+                            break
+
+                if output is not None and brightness is not None:
+                    value = max(0.1, brightness - 0.1)
+                    subprocess.run(
+                        [
+                            "xrandr",
+                            "--output",
+                            output,
+                            "--brightness",
+                            f"{value:.3f}",
+                        ],
+                        capture_output=True,
+                        check=False,
+                    )
+            except Exception as e:
+                print(f"[Settings] Linux brightness down fallback failed: {e}")
     else:
         try:
             subprocess.run(
@@ -967,7 +1043,7 @@ def clear_clipboard():
     """Empty the clipboard. Windows: `echo off | clip`; mac: pbcopy </dev/null."""
     try:
         if _OS == "Windows":
-            subprocess.run("cmd /c echo off | clip", shell=True,
+            subprocess.run(["cmd.exe", "/c", "echo off | clip"], shell=False,
                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         elif _OS == "Darwin":
             subprocess.run(["pbcopy"], input=b"", check=False)

@@ -1,3 +1,4 @@
+from pathlib import Path
 import os
 import time
 import subprocess
@@ -64,7 +65,7 @@ _APP_ALIASES: dict[str, dict[str, str]] = {
     "epic":               {"Windows": "EpicGamesLauncher",       "Darwin": "Epic Games Launcher",  "Linux": "legendary"},
     "epic games":         {"Windows": "EpicGamesLauncher",       "Darwin": "Epic Games Launcher",  "Linux": "legendary"},
 
-    # ── Windows protocol / URI shortcuts (opened via os.startfile) ──────────
+    # â”€â”€ Windows protocol / URI shortcuts (opened via os.startfile) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     "snipping tool":      {"Windows": "ms-screenclip:",           "Darwin": "Screenshot",           "Linux": "gnome-screenshot"},
     "snip":               {"Windows": "ms-screenclip:",           "Darwin": "Screenshot",           "Linux": "gnome-screenshot"},
     "screen clip":        {"Windows": "ms-screenclip:",           "Darwin": "Screenshot",           "Linux": "gnome-screenshot"},
@@ -94,73 +95,53 @@ def _normalize(raw: str) -> str:
 
 
 def _launch_windows(app_name: str) -> bool:
+    """Launch a Windows application/URI without shell interpolation."""
+    app_name = os.path.expandvars(os.path.expanduser(str(app_name).strip()))
+    if not app_name:
+        return False
 
-    # 1. Protocol / URI handlers (ms-screenclip:, ms-settings:, https: …).
-    #    os.startfile is the reliable way to invoke these; a bare `start`
-    #    through the shell silently does nothing for most ms-* URIs.
-    if ":" in app_name and "\\" not in app_name and not app_name.startswith("/"):
+    # URI / protocol handler.
+    if "://" in app_name or app_name.startswith(("ms-", "shell:")):
         try:
-            os.startfile(app_name)          # noqa: S606 — Windows only
-            time.sleep(0.8)
+            os.startfile(app_name)
             return True
-        except Exception as e:
-            print(f"[open_app] startfile('{app_name}') failed: {e}")
+        except OSError:
+            return False
 
-    # 2. Executable on PATH.
-    if shutil.which(app_name) or shutil.which(app_name.split(".")[0]):
+    # Existing file/path.
+    candidate = Path(app_name)
+    if candidate.exists():
         try:
-            subprocess.Popen(
-                app_name,
-                shell=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            time.sleep(1.5)
+            os.startfile(str(candidate))
             return True
-        except Exception as e:
-            print(f"[open_app] subprocess failed: {e}")
+        except OSError:
+            pass
 
-    # 2b. An explicit path (env vars expanded) -> launch it DIRECTLY.
-    #     Pipeling a path through `start` breaks on the FIRST space:
-    #     "C:\Users\Aftab shargh\..." became "C:\Users\Aftab", which is
-    #     the "Windows cannot find" dialog that kept eating our runs.
-    cand = os.path.expandvars(app_name)
-    if cand != app_name and os.path.exists(cand):
+    # Executable available on PATH.
+    resolved = shutil.which(app_name)
+    if resolved:
         try:
-            os.startfile(cand)
-            time.sleep(1.5)
+            subprocess.Popen([resolved], shell=False)
             return True
-        except Exception as e:
-            print(f"[open_app] startfile('{cand}') failed: {e}")
+        except OSError:
+            pass
 
-    # 3. Raw shell `start` (covers .lnk, folders, files, URLs).
-    try:
-        subprocess.Popen(
-            f'start "" "{app_name}"',
-            shell=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        time.sleep(1.0)
-        return True
-    except Exception as e:
-        print(f"[open_app] start failed: {e}")
-
-    # 4. Last resort: Start-menu search.
-    try:
-        import pyautogui
-        pyautogui.PAUSE = 0.1
-        pyautogui.press("win")
-        time.sleep(0.7)
-        pyautogui.write(app_name, interval=0.05)
-        time.sleep(0.9)
-        pyautogui.press("enter")
-        time.sleep(2.5)
-        return True
-    except Exception as e:
-        print(f"[open_app] Start Menu search failed: {e}")
+    # Common Windows application aliases.
+    aliases = {
+        "telegram": os.path.expandvars(
+            r"%APPDATA%\\Telegram Desktop\\Telegram.exe"
+        ),
+    }
+    alias = aliases.get(app_name.lower())
+    if alias and Path(alias).exists():
+        try:
+            subprocess.Popen([alias], shell=False)
+            return True
+        except OSError:
+            pass
 
     return False
+
 
 
 def _launch_macos(app_name: str) -> bool:
@@ -319,10 +300,10 @@ def open_app(
         return f"Failed to open {app_name}: {e}"
 
 
-# ── Tool declaration (auto-discovered by core/action_loader.py) ──────────────
+# â”€â”€ Tool declaration (auto-discovered by core/action_loader.py) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 TOOL = {
     "name": "open_app",
-    "description": "Opens any application on the computer. Use this whenever the user asks to open, launch, or start any app, website, or program. Always call this tool — never just say you opened it.",
+    "description": "Opens any application on the computer. Use this whenever the user asks to open, launch, or start any app, website, or program. Always call this tool â€” never just say you opened it.",
     "parameters": {
         "type": "OBJECT",
         "properties": {
@@ -340,9 +321,9 @@ TOOL = {
 
 
 
-# ── _launch_windows v2 (appended last, so THIS definition wins) ──────────────
+# â”€â”€ _launch_windows v2 (appended last, so THIS definition wins) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # The old one piped the resolved value straight into the shell:
-#     subprocess.Popen(f'start "" {app_name}', shell=True)
+# Legacy shell-based launcher removed.
 # A path containing a space ("C:\Users\Aftab shargh\AppData\Roaming\...") gets
 # split by cmd at that space, which produced the "Windows cannot find
 # 'C:\Users\Aftab'" dialog instead of launching anything. A path we can resolve
@@ -353,58 +334,6 @@ if os.path.exists(_TG):
     _APP_ALIASES.setdefault("telegram", {})["Windows"] = _TG
 
 
-def _launch_windows(app_name: str) -> bool:
-    raw = str(app_name or "").strip()
-    cand = os.path.expandvars(raw)
-
-    if cand != raw and os.path.exists(cand):
-        try:
-            os.startfile(cand)
-            time.sleep(1.5)
-            return True
-        except Exception as e:
-            print(f"[open_app] startfile failed: {e}")
-
-    if ":" in cand and "\\" not in cand and "/" not in cand:
-        try:
-            os.startfile(cand)
-            time.sleep(0.8)
-            return True
-        except Exception as e:
-            print(f"[open_app] startfile({cand!r}) failed: {e}")
-
-    if shutil.which(cand) or shutil.which(cand.split(".")[0]):
-        try:
-            subprocess.Popen(cand, shell=True,
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            time.sleep(1.5)
-            return True
-        except Exception as e:
-            print(f"[open_app] subprocess failed: {e}")
-
-    for cmd in (f'start "" "{cand}"', f'start "" {cand}'):
-        try:
-            subprocess.Popen(cmd, shell=True,
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            time.sleep(1.2)
-            return True
-        except Exception as e:
-            print(f"[open_app] {cmd!r} failed: {e}")
-
-    try:
-        import pyautogui
-        pyautogui.PAUSE = 0.1
-        pyautogui.press("win")
-        time.sleep(0.7)
-        pyautogui.write(cand, interval=0.05)
-        time.sleep(0.9)
-        pyautogui.press("enter")
-        time.sleep(2.5)
-        return True
-    except Exception as e:
-        print(f"[open_app] Start Menu search failed: {e}")
-
-    return False
 
 
 # -- stdout must survive non-ASCII on Windows -----------------------------
