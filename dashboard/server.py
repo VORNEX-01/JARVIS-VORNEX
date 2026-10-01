@@ -467,7 +467,7 @@ class DashboardServer:
         self._wake_callback               = None
         self._connect_callback            = None
         self._pending_keys: dict[str, float] = {}
-        self._device_sessions: dict[str, dict] = {}  # device_token → {session_key}
+        self._device_sessions: dict[str, dict] = {}  # device_token → {session_key, expires_at}
         self._phone_audio_queue: asyncio.Queue    = asyncio.Queue(maxsize=200)
         self._uploads_dir                 = UPLOADS_DIR
         self._login_html                  = _read("login.html")
@@ -528,6 +528,38 @@ class DashboardServer:
         self._tokens.discard(tok)
         self._token_keys.pop(tok, None)
         self._token_expiry.pop(tok, None)
+
+    def _issue_device_token(self, session_key: str, ttl: int = 60 * 60 * 24 * 30) -> str:
+        now = time.time()
+
+        expired = [
+            token
+            for token, data in self._device_sessions.items()
+            if float(data.get("expires_at", 0.0)) <= now
+        ]
+        for token in expired:
+            self._device_sessions.pop(token, None)
+
+        token = secrets.token_urlsafe(32)
+        self._device_sessions[token] = {
+            "session_key": session_key,
+            "expires_at": now + ttl,
+        }
+        return token
+
+    def _valid_device_token(self, token: str) -> bool:
+        if not token:
+            return False
+
+        data = self._device_sessions.get(token)
+        if not data:
+            return False
+
+        if float(data.get("expires_at", 0.0)) <= time.time():
+            self._device_sessions.pop(token, None)
+            return False
+
+        return True
 
     def _aes_key(self, session_key: str) -> bytes:
         if session_key not in self._aes_cache:
@@ -638,8 +670,7 @@ class DashboardServer:
 
             del self._pending_keys[key]
             tok     = self._issue_token(key)
-            dev_tok = secrets.token_urlsafe(32)
-            self._device_sessions[dev_tok] = {"session_key": key}
+            dev_tok = self._issue_device_token(key)
 
             if self._connect_callback:
                 self._connect_callback()
@@ -676,8 +707,10 @@ class DashboardServer:
         async def device_login_ep(req: Request):
             """Return a fresh auth session for a previously paired device cookie."""
             dev_tok = req.cookies.get("jarvis_device", "").strip()
-            if not dev_tok or dev_tok not in self._device_sessions:
-                return JSONResponse({"ok": False}, status_code=401)
+            if not self._valid_device_token(dev_tok):
+                resp = JSONResponse({"ok": False}, status_code=401)
+                resp.delete_cookie("jarvis_device", path="/")
+                return resp
             session_key = self._device_sessions[dev_tok]["session_key"]
             tok = self._issue_token(session_key)
             if self._connect_callback:
@@ -700,7 +733,21 @@ class DashboardServer:
                 return JSONResponse({"error": "Unauthorized"}, status_code=401)
             count = len(self._device_sessions)
             self._device_sessions.clear()
-            return JSONResponse({"ok": True, "revoked": count})
+
+            revoked_sessions = len(self._tokens)
+            self._tokens.clear()
+            self._token_keys.clear()
+            self._token_expiry.clear()
+            self._aes_cache.clear()
+
+            resp = JSONResponse({
+                "ok": True,
+                "revoked": count,
+                "sessions_revoked": revoked_sessions,
+            })
+            resp.delete_cookie("jarvis_auth", path="/")
+            resp.delete_cookie("jarvis_device", path="/")
+            return resp
 
         @app.post("/api/command")
         async def command(req: Request):
