@@ -183,7 +183,7 @@ def _ensure_network_access(port: int) -> None:
         # ── Try running directly (succeeds when already admin) ────────────────
         try:
             r = subprocess.run(
-                [bat_path], capture_output=True, timeout=8, shell=True
+                ["cmd.exe", "/d", "/c", bat_path], capture_output=True, timeout=8, shell=False
             )
             if r.returncode == 0:
                 print(f"[Dashboard] Firewall configured for port {port}.")
@@ -370,8 +370,8 @@ def _ensure_certs() -> bool:
     present a certificate that matches it. Generating locally gives each install
     its own key, costs about a second, and happens exactly once.
 
-    Returns True when a usable pair exists afterwards; False leaves the caller on
-    plain HTTP, which still works — the QR code simply encodes http:// instead.
+    Returns True when a usable pair exists afterwards; False means the remote
+    dashboard must not be exposed because it carries control/authentication traffic.
     """
     certs = BASE_DIR / "config" / "certs"
     key_p = certs / "jarvis.key"
@@ -387,7 +387,7 @@ def _ensure_certs() -> bool:
         from cryptography.hazmat.primitives.asymmetric import rsa
         from cryptography.x509.oid import NameOID
     except ImportError:
-        print("[Dashboard] cryptography not installed — serving over plain HTTP.")
+        print("[Dashboard] cryptography not installed — refusing LAN dashboard.")
         print("[Dashboard] For HTTPS run:  pip install cryptography")
         return False
 
@@ -443,7 +443,7 @@ def _ensure_certs() -> bool:
         print(f"[Dashboard] Generated a self-signed certificate for this machine: {certs}")
         return True
     except Exception as e:
-        print(f"[Dashboard] Certificate generation failed ({e}) — serving over plain HTTP.")
+        print(f"[Dashboard] Certificate generation failed ({e}) — refusing LAN dashboard.")
         return False
 
 
@@ -459,6 +459,7 @@ class DashboardServer:
         self._ip                          = _local_ip()
         self._tokens: set[str]            = set()
         self._token_keys: dict[str, str]  = {}   # auth_token → session_key
+        self._token_expiry: dict[str, float] = {} # auth_token → unix expiry
         self._aes_cache:  dict[str, bytes]= {}   # session_key → AES bytes
         self._clients: set[WebSocket]     = set()
         self._history: list[dict]         = []
@@ -496,6 +497,37 @@ class DashboardServer:
         if self._ssl_enabled():
             return f"{self._ip}:{PORT + 1}"
         return f"{self._ip}:{PORT}"
+
+    def _issue_token(self, session_key: str, ttl: int = 3600) -> str:
+        now = time.time()
+        expired = [t for t, exp in self._token_expiry.items() if exp <= now]
+        for t in expired:
+            self._tokens.discard(t)
+            self._token_keys.pop(t, None)
+            self._token_expiry.pop(t, None)
+
+        tok = secrets.token_urlsafe(32)
+        self._tokens.add(tok)
+        self._token_keys[tok] = session_key
+        self._token_expiry[tok] = now + ttl
+        self._aes_key(session_key)
+        return tok
+
+    def _valid_token(self, tok: str) -> bool:
+        if not tok or tok not in self._tokens:
+            return False
+        exp = self._token_expiry.get(tok)
+        if exp is None or exp <= time.time():
+            self._tokens.discard(tok)
+            self._token_keys.pop(tok, None)
+            self._token_expiry.pop(tok, None)
+            return False
+        return True
+
+    def _revoke_token(self, tok: str) -> None:
+        self._tokens.discard(tok)
+        self._token_keys.pop(tok, None)
+        self._token_expiry.pop(tok, None)
 
     def _aes_key(self, session_key: str) -> bytes:
         if session_key not in self._aes_cache:
@@ -539,8 +571,7 @@ class DashboardServer:
         app = FastAPI(docs_url=None, redoc_url=None)
 
         def _auth(req: Request) -> bool:
-            tok = req.headers.get("authorization", "").removeprefix("Bearer ").strip()
-            return bool(tok) and tok in self._tokens
+            return self._valid_token(req.cookies.get("jarvis_auth", "").strip())
 
         # serve CryptoJS from local cache, fallback to CDN redirect
         @app.get("/static/crypto.js")
@@ -556,10 +587,11 @@ class DashboardServer:
             return HTMLResponse(self._login_html)
 
         @app.get("/", response_class=HTMLResponse)
-        async def index():
-            # Auth is handled client-side via sessionStorage bearer token.
-            # Server-side header auth can't work here because browser navigations
-            # don't send custom headers (location.href doesn't carry Authorization).
+        async def index(req: Request):
+            if not _auth(req):
+                from fastapi.responses import RedirectResponse
+                return RedirectResponse("/login", status_code=303)
+            # Browser navigation carries the HttpOnly auth cookie automatically.
             html = (self._app_html
                     .replace("__IP__", self._ip)
                     .replace("__PORT__", str(PORT)))
@@ -572,17 +604,19 @@ class DashboardServer:
             now     = time.time()
             if entered in self._pending_keys and self._pending_keys[entered] > now:
                 del self._pending_keys[entered]          # one-time use
-                tok = secrets.token_urlsafe(32)
-                self._tokens.add(tok)
-                self._token_keys[tok] = entered
-                self._aes_key(entered)                   # pre-derive & cache
+                tok = self._issue_token(entered)
                 if self._connect_callback:
                     self._connect_callback()
                 asyncio.create_task(self.broadcast(
                     {"type": "sys", "text": "Remote connection established."}
                 ))
-                # Bearer token in response body — no cookies needed (works on any browser/HTTP)
-                return JSONResponse({"ok": True, "token": tok})
+                resp = JSONResponse({"ok": True})
+                resp.set_cookie(
+                    "jarvis_auth", tok,
+                    httponly=True, secure=self._ssl_enabled(),
+                    samesite="strict", max_age=3600,
+                )
+                return resp
             return JSONResponse({"ok": False, "error": "Invalid or expired key"},
                                 status_code=401)
 
@@ -603,11 +637,8 @@ class DashboardServer:
 </div></body></html>""")
 
             del self._pending_keys[key]
-            tok     = secrets.token_urlsafe(32)
+            tok     = self._issue_token(key)
             dev_tok = secrets.token_urlsafe(32)
-            self._tokens.add(tok)
-            self._token_keys[tok] = key
-            self._aes_key(key)
             self._device_sessions[dev_tok] = {"session_key": key}
 
             if self._connect_callback:
@@ -616,7 +647,7 @@ class DashboardServer:
                 {"type": "sys", "text": "Remote connection established via QR code."}
             ))
 
-            return HTMLResponse(f"""<!DOCTYPE html>
+            resp = HTMLResponse(f"""<!DOCTYPE html>
 <html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width">
 <style>
   body{{background:#07090f;color:#dde3ed;font-family:sans-serif;
@@ -625,35 +656,42 @@ class DashboardServer:
 </style></head>
 <body>
 <script>
-  sessionStorage.setItem('jarvis_token','{tok}');
-  sessionStorage.setItem('jarvis_key','{key}');
-  localStorage.setItem('jarvis_device_token','{dev_tok}');
   setTimeout(function(){{location.replace('/')}},400);
 </script>
 <p>Connecting to VORNEX…</p>
 </body></html>""")
+            resp.set_cookie(
+                "jarvis_auth", tok,
+                httponly=True, secure=self._ssl_enabled(),
+                samesite="strict", max_age=3600,
+            )
+            resp.set_cookie(
+                "jarvis_device", dev_tok,
+                httponly=True, secure=self._ssl_enabled(),
+                samesite="strict", max_age=60 * 60 * 24 * 30,
+            )
+            return resp
 
         @app.post("/api/device-login")
         async def device_login_ep(req: Request):
-            """Return a fresh auth token for a previously paired device token."""
-            try:
-                body = await req.json()
-            except Exception:
-                return JSONResponse({"ok": False}, status_code=400)
-            dev_tok = (body.get("device_token") or "").strip()
+            """Return a fresh auth session for a previously paired device cookie."""
+            dev_tok = req.cookies.get("jarvis_device", "").strip()
             if not dev_tok or dev_tok not in self._device_sessions:
                 return JSONResponse({"ok": False}, status_code=401)
             session_key = self._device_sessions[dev_tok]["session_key"]
-            tok = secrets.token_urlsafe(32)
-            self._tokens.add(tok)
-            self._token_keys[tok] = session_key
-            self._aes_key(session_key)
+            tok = self._issue_token(session_key)
             if self._connect_callback:
                 self._connect_callback()
             asyncio.create_task(self.broadcast(
                 {"type": "sys", "text": "Known device reconnected automatically."}
             ))
-            return JSONResponse({"ok": True, "token": tok, "key": session_key})
+            resp = JSONResponse({"ok": True})
+            resp.set_cookie(
+                "jarvis_auth", tok,
+                httponly=True, secure=self._ssl_enabled(),
+                samesite="strict", max_age=3600,
+            )
+            return resp
 
         @app.post("/api/revoke-devices")
         async def revoke_devices(req: Request):
@@ -669,7 +707,9 @@ class DashboardServer:
             if not _auth(req):
                 return JSONResponse({"error": "Unauthorized"}, status_code=401)
             body  = await req.json()
-            token = req.headers.get("authorization", "").removeprefix("Bearer ").strip()
+            token = req.cookies.get("jarvis_auth", "").strip()
+            if not self._valid_token(token):
+                return JSONResponse({"error": "Unauthorized"}, status_code=401)
             enc   = body.get("enc", "")
             if enc:
                 text = self._decrypt(token, enc)
@@ -694,9 +734,9 @@ class DashboardServer:
         # ── Phone mic real-time audio → Gemini Live ──────────────────────────
 
         @app.websocket("/ws/phone-audio")
-        async def phone_audio_ws(websocket: WebSocket, token: str = ""):
-            tok = token.strip()
-            if not tok or tok not in self._tokens:
+        async def phone_audio_ws(websocket: WebSocket):
+            tok = websocket.cookies.get("jarvis_auth", "").strip()
+            if not self._valid_token(tok):
                 await websocket.close(code=4001)
                 return
             await websocket.accept()
@@ -796,10 +836,9 @@ class DashboardServer:
             return JSONResponse({"files": files})
 
         @app.get("/uploads/{filename}")
-        async def download_file(filename: str, token: str = ""):
-            # Auth via query param — browser <a download> can't send custom headers
-            tok = token.strip()
-            if not tok or tok not in self._tokens:
+        async def download_file(filename: str, req: Request):
+            tok = req.cookies.get("jarvis_auth", "").strip()
+            if not self._valid_token(tok):
                 return JSONResponse({"error": "Unauthorized"}, status_code=401)
             safe = re.sub(r'[/\\]', '', filename)
             path = self._uploads_dir / safe
@@ -808,8 +847,8 @@ class DashboardServer:
             return FileResponse(str(path), filename=safe)
 
         @app.websocket("/ws")
-        async def ws_ep(websocket: WebSocket, token: str = ""):
-            tok = token.strip()
+        async def ws_ep(websocket: WebSocket):
+            tok = websocket.cookies.get("jarvis_auth", "").strip()
             if not tok or tok not in self._tokens:
                 await websocket.close(code=4001)
                 return
@@ -859,26 +898,32 @@ class DashboardServer:
             print("[Dashboard] Run:  pip install fastapi 'uvicorn[standard]' cryptography")
             return
 
-        # Firewall setup runs in a thread — uvicorn starts immediately,
-        # no waiting for UAC dialogs or subprocess timeouts.
-        asyncio.get_event_loop().run_in_executor(None, _ensure_network_access, PORT)
+        # Remote control carries authentication, commands, uploads, and WebSocket
+        # traffic. Never expose it over plaintext HTTP.
+        if not _ensure_certs() or not self._ssl_enabled():
+            print("[Dashboard] TLS is unavailable — LAN dashboard REFUSED.")
+            print("[Dashboard] Install cryptography or repair config/certs.")
+            return
 
-        # Generate the TLS pair on first run so no private key ships in the repo.
-        _ensure_certs()
-
-        use_ssl  = self._ssl_enabled()
         ssl_key  = BASE_DIR / "config" / "certs" / "jarvis.key"
         ssl_cert = BASE_DIR / "config" / "certs" / "jarvis.crt"
 
-        if use_ssl:
-            asyncio.create_task(self._serve_alias())
-
-        cfg = uvicorn.Config(
-            self.app, host="0.0.0.0", port=PORT, log_level="warning",
-            **({"ssl_keyfile": str(ssl_key), "ssl_certfile": str(ssl_cert)} if use_ssl else {}),
+        # Only open the firewall after TLS is confirmed.
+        asyncio.get_event_loop().run_in_executor(
+            None, _ensure_network_access, PORT
         )
 
-        proto = "https" if use_ssl else "http"
-        print(f"[Dashboard] {proto}://{self._ip}:{PORT}")
+        asyncio.create_task(self._serve_alias())
+
+        cfg = uvicorn.Config(
+            self.app,
+            host="0.0.0.0",
+            port=PORT,
+            log_level="warning",
+            ssl_keyfile=str(ssl_key),
+            ssl_certfile=str(ssl_cert),
+        )
+
+        print(f"[Dashboard] https://{self._ip}:{PORT}")
         print("[Dashboard] Press 'Remote Control' in VORNEX UI to get the QR code.")
         await uvicorn.Server(cfg).serve()
