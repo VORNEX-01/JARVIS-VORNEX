@@ -1,25 +1,25 @@
-# ── MARK LIII — what never belongs in the repository ──────────────────────────
-# Everything listed here is created by the app on first run. A fresh clone with
-# none of it present boots straight to the setup screen, which is the intended
-# first experience — so nothing here needs to be committed, and some of it must
-# never be.
-
-# ── Secrets. Committing any of these publishes them. ──────────────────────────
-config/api_keys.json          # your Gemini API key, plus per-plugin credentials
-config/certs/                 # the dashboard's TLS private key and certificate
-config/whatsapp_web/          # a LINKED WhatsApp session — committing it hands
-                              # somebody your WhatsApp account, not just a key
-**/token*.json                # Google OAuth tokens (Gmail / Calendar plugins)
-**/client_secret*.json        # Google OAuth client secrets
+# Secrets
+config/api_keys.json
+config/certs/
+config/whatsapp_web/
+**/token*.json
+**/client_secret*.json
 *credentials*.json
 .env
 .env.*
 
-# ── Personal data the assistant accumulates about you ─────────────────────────
+# Personal / runtime data
 memory/long_term.json
 memory/*.db
+memory/learned_tools.json
+.jarvis/
+*.log
+logs/
+downloads/
+screenshots/
+tools/_shots/
 
-# ── Python build noise ────────────────────────────────────────────────────────
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
@@ -29,13 +29,13 @@ dist/
 *.egg-info/
 .eggs/
 
-# ── Virtual environments ──────────────────────────────────────────────────────
+# Virtual environments
 .venv/
 venv/
 env/
 ENV/
 
-# ── Editors and operating systems ─────────────────────────────────────────────
+# Editors / OS
 .vscode/
 .idea/
 *.swp
@@ -43,27 +43,10 @@ ENV/
 Thumbs.db
 desktop.ini
 
-# ── Runtime output ────────────────────────────────────────────────────────────
-*.log
-logs/
-downloads/
-screenshots/
-
-# local only — never commit
-config/api_keys.json
+# Local / generated files
 *.before_*
-
-# auto-generated per machine — never commit
-config/certs/
-nul
-tools/_shots/
-*.bak*
-__pycache__/
+*.bak
+*.bak.*
 _*.txt
 *.broken
-tools/_shots/
-memory/learned_tools.json
-plugins/*.py
-!plugins/_template.py
-!plugins/__init__.py
-.jarvis/
+nul
