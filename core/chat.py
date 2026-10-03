@@ -45,13 +45,17 @@ def _raise(win):
             return False
 
 
-def _settle(win, before, rev):
+_FAST = 0.35
+
+
+def _settle(win, before=None, rev=None, hard_limit=2.5):
     try:
-        from core import desktop_agent as da
-        return da._settle(win, before, rev)
+        if rev is not None:
+            live.wait_change(win, timeout=min(hard_limit, 0.6), since=rev)
     except Exception:
-        time.sleep(0.3)
-        return True
+        pass
+    time.sleep(min(0.10, hard_limit))
+    return True
 
 
 def name(win):
@@ -96,7 +100,7 @@ def payloads(steps):
             and str(s.get("text") or "").strip()]
 
 
-def recipient(task, payloads=(), preset=""):
+def _chat_recipient_v1(task, payloads=(), preset=""):
     """Who the task is for: the exact name when the caller knows it, else the
     first substantial word of the task that is not part of the message itself."""
     who = str(preset or "").strip()
@@ -130,29 +134,27 @@ def find_search(items):
     return None
 
 
-def click(win, item, player=None):
-    """Click ONE live control, precisely, then wait for the UI to settle."""
+def click(win, item, player=None, settle=_FAST):
     try:
         idx = int(item.get("i"))
     except Exception:
         return False
-    _raise(win)
-    try:
-        before = wa.signature(wa.inventory(win))
-    except Exception:
-        before = None
-    rev = live.revision(win)
     r = item.get("rect") or (0, 0, 0, 0)
+    x, y = (r[0] + r[2]) // 2, (r[1] + r[3]) // 2
+    _raise(win)
+    time.sleep(0.03)
+    rev = live.revision(win)
     _log(player, "click %r centre (%d,%d) box %dx%d" % (
-        str(item.get("name") or "")[:34],
-        (r[0] + r[2]) // 2, (r[1] + r[3]) // 2,
+        str(item.get("name") or "")[:34], x, y,
         max(0, r[2] - r[0]), max(0, r[3] - r[1])))
     try:
-        wa.click_item(win, idx)
+        import pyautogui
+        pyautogui.PAUSE = 0.02
+        pyautogui.click(x, y)
     except Exception as e:
         _log(player, "click failed: %s" % e)
         return False
-    _settle(win, before, rev)
+    _settle(win, None, rev, settle)
     return True
 
 
@@ -235,39 +237,8 @@ def ensure_payload(win, task, steps=(), player=None):
 # and the result list renders within a second - so we type once and then poll,
 # bounded, for a row that IS the person.
 
-def _settle(win, before, rev, hard_limit=2.5):
-    try:
-        from core import desktop_agent as da
-        return da._settle(win, before, rev, hard_limit)
-    except Exception:
-        time.sleep(min(0.3, hard_limit))
-        return True
 
 
-def click(win, item, player=None, settle=2.5):
-    """Click ONE live control, precisely, then wait for the UI to settle."""
-    try:
-        idx = int(item.get("i"))
-    except Exception:
-        return False
-    _raise(win)
-    try:
-        before = wa.signature(wa.inventory(win))
-    except Exception:
-        before = None
-    rev = live.revision(win)
-    r = item.get("rect") or (0, 0, 0, 0)
-    _log(player, "click %r centre (%d,%d) box %dx%d" % (
-        str(item.get("name") or "")[:34],
-        (r[0] + r[2]) // 2, (r[1] + r[3]) // 2,
-        max(0, r[2] - r[0]), max(0, r[3] - r[1])))
-    try:
-        wa.click_item(win, idx)
-    except Exception as e:
-        _log(player, "click failed: %s" % e)
-        return False
-    _settle(win, before, rev, settle)
-    return True
 
 
 
@@ -419,11 +390,8 @@ def _search_fields(win, box=None):
 _settle_old = _settle
 _click_old = click
 
-_FAST = 0.35
 
 
-def _settle(win, before, rev, hard_limit=2.5):
-    return _settle_old(win, before, rev, min(hard_limit, _FAST))
 
 
 
@@ -513,14 +481,6 @@ wa.inventory = inventory
 # every caller still VERIFIES afterwards (chat identity, message in the
 # conversation), so a missed click can only fail - it can never send wrong.
 
-def _settle(win, before=None, rev=None, hard_limit=2.5):
-    try:
-        if rev is not None:
-            live.wait_change(win, timeout=min(hard_limit, 0.6), since=rev)
-    except Exception:
-        pass
-    time.sleep(min(0.10, hard_limit))
-    return True
 
 
 wa._settle = _settle
@@ -531,28 +491,6 @@ except Exception:
     pass
 
 
-def click(win, item, player=None, settle=_FAST):
-    try:
-        idx = int(item.get("i"))
-    except Exception:
-        return False
-    r = item.get("rect") or (0, 0, 0, 0)
-    x, y = (r[0] + r[2]) // 2, (r[1] + r[3]) // 2
-    _raise(win)
-    time.sleep(0.03)
-    rev = live.revision(win)
-    _log(player, "click %r centre (%d,%d) box %dx%d" % (
-        str(item.get("name") or "")[:34], x, y,
-        max(0, r[2] - r[0]), max(0, r[3] - r[1])))
-    try:
-        import pyautogui
-        pyautogui.PAUSE = 0.02
-        pyautogui.click(x, y)
-    except Exception as e:
-        _log(player, "click failed: %s" % e)
-        return False
-    _settle(win, None, rev, settle)
-    return True
 
 
 # ── the engine reads its per-app knowledge from the registry, as data ─────────
@@ -625,7 +563,6 @@ def _is_decorative(s) -> bool:
     return bool(_re.match(r"^message\s*(#|\d|\.\.\.)?$", low))
 
 
-_chat_recipient_v1 = recipient
 
 
 def recipient(task, payloads=(), preset=""):

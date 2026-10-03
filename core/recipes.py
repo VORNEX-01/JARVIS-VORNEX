@@ -54,7 +54,7 @@ def split_tail(task, typed):
     return t, False
 
 
-def save(app, task, steps):
+def _save_base(app, task, steps):
     """Remember a plan that VERIFIED. `steps` are semantic; indexes are dropped."""
     if not app or not steps:
         return None
@@ -94,7 +94,7 @@ def save(app, task, steps):
     return rec["key"]
 
 
-def load(app, task):
+def _load_base(app, task):
     """The stored recipe whose prefix this task starts with, or None."""
     t, a = _norm(task), _norm(app)
     best = None
@@ -228,16 +228,8 @@ def entries():
             for r in d.get("recipes", [])]
 
 
-_SAVE_OLD = save
 
 
-def save(app, task, steps):
-    key = _SAVE_OLD(app, task, steps)
-    try:
-        prune()
-    except Exception:
-        pass
-    return key
 
 
 # ── self-healing start-up (appended last: this wins) ─────────────────────────
@@ -277,48 +269,9 @@ def recover():
 _STARTUP = recover()
 
 
-# ── only plans that REALLY worked are kept (appended last: these win) ────────
-# A false "verified" once saved a one-step plan that proved nothing, and the
-# store then replayed it forever, claiming success each time. A recipe is now
-# stamped `ok` only where a real proof passed, and load() refuses anything
-# without that stamp. `forget(app)` drops what a mistake already wrote.
-
-def save(app, task, steps):
-    key = _SAVE_OLD(app, task, steps)
-    try:
-        with _LOCK:
-            d = _load_raw()
-            for r in d.get("recipes", []):
-                if r.get("key") == key:
-                    r["ok"] = True
-                    r["schema"] = 2
-            _save_raw(d)
-    except Exception:
-        pass
-    try:
-        prune()
-    except Exception:
-        pass
-    return key
 
 
-def load(app, task):
-    t, a = _norm(task), _norm(app)
-    best = None
-    with _LOCK:
-        d = _load_raw()
-    for r in d.get("recipes", []):
-        if r.get("ok") is not True:
-            continue
-        if _norm(r.get("app")) != a:
-            continue
-        pref = _norm(r.get("prefix"))
-        if not pref:
-            continue
-        if t.startswith(pref):
-            if best is None or len(_norm(best.get("prefix"))) < len(pref):
-                best = r
-    return best
+
 
 
 def forget(app=None):
@@ -337,25 +290,48 @@ def forget(app=None):
 
 
 # ── messengers are never learned, at all ─────────────────────────────────────
-# A send depends on the OPEN conversation, so it must never be replayed (already
-# enforced) - but it was still being SAVED, leaving dead rows like
-# "send to Mahak … vornex 16". Replaying is refused, so storing is pointless; we
-# now refuse to store a messenger task in the first place, and to load one.
 
 _MESSENGERS = ("telegram", "whatsapp", "signal", "discord", "instagram",
                "messenger", "slack", "skype", "viber", "teams")
-
-_SAVE_PREV = save
-_LOAD_PREV = load
 
 
 def save(app, task, steps):
     if any(m in str(app or "").lower() for m in _MESSENGERS):
         return ""
-    return _SAVE_PREV(app, task, steps)
+    key = _save_base(app, task, steps)
+    try:
+        with _LOCK:
+            d = _load_raw()
+            for r in d.get("recipes", []):
+                if r.get("key") == key:
+                    r["ok"] = True
+                    r["schema"] = 2
+            _save_raw(d)
+    except Exception:
+        pass
+    try:
+        prune()
+    except Exception:
+        pass
+    return key
 
 
 def load(app, task):
     if any(m in str(app or "").lower() for m in _MESSENGERS):
         return None
-    return _LOAD_PREV(app, task)
+    t, a = _norm(task), _norm(app)
+    best = None
+    with _LOCK:
+        d = _load_raw()
+    for r in d.get("recipes", []):
+        if r.get("ok") is not True:
+            continue
+        if _norm(r.get("app")) != a:
+            continue
+        pref = _norm(r.get("prefix"))
+        if not pref:
+            continue
+        if t.startswith(pref):
+            if best is None or len(_norm(best.get("prefix"))) < len(pref):
+                best = r
+    return best
