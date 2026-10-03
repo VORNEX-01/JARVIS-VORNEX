@@ -1,179 +1,119 @@
+<div align="center">
+
 # VORNEX JARVIS
 
-> **A real-time AI desktop assistant by VORNEX — built to see, understand, act, and verify.**
+### SEE · UNDERSTAND · ACT · VERIFY
 
-JARVIS is the AI desktop assistant created by **VORNEX**.
+**A desktop assistant built by VORNEX.**
 
-It is designed to work with your computer as a real assistant — not simply answer questions, but understand what you want, interact with your desktop, perform multi-step tasks, and verify important results.
+[![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D4?style=flat-square&logo=windows&logoColor=white)](#)
+[![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white)](#)
+[![Gemini](https://img.shields.io/badge/Gemini-Powered-4285F4?style=flat-square&logo=google&logoColor=white)](#)
+[![License](https://img.shields.io/badge/License-see%20LICENSE-555555?style=flat-square)](LICENSE)
+
+<br>
+
+**[ English ](#english) · [ فارسی ](#فارسی)**
+
+</div>
+
+---
+
+<a id="english"></a>
+
+<div dir="ltr">
+
+## JARVIS
+
+JARVIS is the desktop assistant created by **VORNEX**.
+
+It is built to work with your computer directly — opening applications, navigating interfaces, handling files, using the web, carrying out multi-step tasks, and checking whether important actions actually succeeded.
 
 The idea is simple:
 
-**You tell JARVIS what you want. JARVIS handles the computer work.**
+> **Tell JARVIS what you need. Let it handle the computer.**
 
 ---
 
-## ✨ What is JARVIS?
+## What it can do
 
-JARVIS is a live AI assistant for your computer.
-
-It can:
-
-- 👁️ Understand the current desktop
-- 🖱️ Interact with applications
-- ⌨️ Type and control the keyboard
-- 🪟 Work with Windows applications
-- 📂 Work with files and folders
-- 🌐 Search and use the web
-- 💬 Send supported messages
-- ▶️ Work with supported media
-- 🛠️ Assist with development tasks
-- 🌦️ Get weather information
-- ✈️ Search for flights
-- 🎮 Handle supported game and update tasks
-- 🖥️ Monitor system health
-- 🔄 Recover from certain runtime and connection problems
-- 🧠 Use useful context across tasks
-- 🔐 Ask for confirmation before sensitive actions
-- ✅ Verify important actions instead of simply assuming they worked
+| Area | Capabilities |
+|---|---|
+| Desktop | Control applications, windows, keyboard and mouse |
+| Files | Find, read, organize and work with files |
+| Web | Search the web and work with supported web tasks |
+| Communication | Work with supported messaging workflows |
+| Media | Open and interact with supported media services |
+| System | Monitor system health and handle supported recovery |
+| Development | Assist with coding and development workflows |
+| Memory | Maintain useful context and learned information |
+| Remote | Provide an authenticated remote dashboard |
+| Safety | Confirm sensitive actions and verify important results |
 
 JARVIS is designed around **general desktop interaction**.
 
-That means ordinary computer tasks should not require a separate custom script for every application.
-
-If an application exposes normal desktop controls, JARVIS can interact with it through its general computer-control system.
+Normal computer tasks do not depend on having a separate custom script for every application. When an application exposes standard desktop controls, JARVIS can work with those controls through its general interaction system.
 
 ---
 
-# 🚀 Quick Start
+## How it works
 
-## Requirements
+JARVIS follows a simple loop:
 
-You need:
+**Observe → Understand → Act → Verify**
+
+It can inspect the current desktop, determine what needs to happen, perform the required interaction, and verify the result before treating the task as complete.
+
+If success cannot be established, JARVIS is designed to stop rather than simply claim that the task worked.
+
+---
+
+## Quick Start
+
+### Requirements
 
 - Windows 10 or Windows 11
-- Python 3.11 or newer
-- A Gemini API key
-- A working microphone and audio output
+- Python 3.11+
+- Gemini API key
+- Microphone and audio output
 
----
-
-## 1. Download JARVIS
-
-Clone the repository:
+### Install
 
 ```bash
-git clone https://github.com/VORNEX/JARVIS-VORNEX.git
+git clone https://github.com/VORNEX-01/JARVIS-VORNEX.git
 cd JARVIS-VORNEX
+pip install -r requirements.txt
+python main.py
 ````
 
----
+On first launch, the setup screen guides you through the initial configuration.
 
-## 2. Install
-
-Install the required dependencies:
-
-```bash
-pip install -r requirements.txt
-```
+Existing Gemini keys are loaded automatically when available and displayed as masked fields.
 
 ---
 
-## 3. Start JARVIS
+## Setup
 
-Run:
+The setup screen handles the essentials:
 
-```bash
-python main.py
-```
+* Gemini API keys
+* Operating system selection
 
-On the first launch, JARVIS opens its setup screen.
+Up to three Gemini API keys can be configured.
 
-The setup guides you through the initial configuration.
+Existing keys do not need to be entered again. They can be replaced, added, or cleared from the setup screen.
 
-After that, you normally do not need to configure everything again.
-
----
-
-# 🔑 Gemini API Keys
-
-JARVIS uses Gemini for its AI reasoning.
-
-You can configure up to **three Gemini API keys**.
-
-Existing keys are automatically loaded when available and displayed securely as masked fields.
-
-You do **not** need to enter your saved keys every time JARVIS starts.
-
-From the setup screen, you can:
-
-* Replace a key
-* Add another key
-* Clear a key
-* Keep your existing keys
-
-Your API key configuration stays on your computer and is excluded from Git.
+Local credentials are kept outside Git.
 
 ---
 
-# 🖥️ Operating System
+## Desktop Control
 
-During setup, select your operating system.
+JARVIS does not require a separate integration for every application.
 
-The current primary desktop experience is designed for Windows.
+Its desktop-control system can inspect application interfaces, identify available controls, perform interactions, and verify the resulting state.
 
-Once selected, the operating system is saved locally so you do not need to select it every time.
-
----
-
-# 🎙️ Talk to JARVIS Naturally
-
-You do not need to know how JARVIS works internally.
-
-You do not need to select tools.
-
-You do not need to write scripts for normal tasks.
-
-Just tell JARVIS what you want.
-
-For example:
-
-> Open Notepad and write "VORNEX JARVIS is online."
-
-> Open Chrome and search for today's weather.
-
-> Find the file I downloaded yesterday.
-
-> Open YouTube.
-
-> Type this message into Telegram.
-
-> Open Windows Settings and turn on Bluetooth.
-
-> Find the latest information about this topic.
-
-> Check whether my computer is running normally.
-
-JARVIS decides how to perform the task.
-
----
-
-# 🧠 General Desktop Intelligence
-
-One of the main goals of JARVIS is to make computer control **general instead of application-specific**.
-
-JARVIS can:
-
-1. Observe the current application
-2. Understand available controls
-3. Decide what needs to happen
-4. Perform the required action
-5. Check the result
-6. Continue when more steps are needed
-7. Stop when it cannot verify success
-
-This allows the same desktop-control system to work across many applications.
-
-Examples include:
+This allows the same general interaction layer to work across applications such as:
 
 * Notepad
 * File Explorer
@@ -182,443 +122,280 @@ Examples include:
 * Messaging applications
 * Other standard Windows desktop applications
 
-Specialized integrations can still exist when they provide useful capabilities, but normal desktop interaction does not depend on having a custom integration for every application.
+Specialized integrations can still be used where they provide capabilities beyond ordinary desktop interaction.
 
 ---
 
-# 🔐 Safety
+## Remote Dashboard
 
-JARVIS includes multiple safety mechanisms.
+JARVIS includes an authenticated dashboard for supported remote workflows.
 
-Sensitive or potentially destructive actions can require user confirmation.
+When available, the application provides the information required to connect from a compatible device on the local network.
 
-Important actions can also be verified after execution.
-
-JARVIS is designed not to treat an action as successful simply because a command was sent.
-
-The project also includes protections around:
-
-* API credentials
-* Remote access
-* Sensitive execution
-* Self-modification
-* Runtime recovery
-* Action verification
+Remote access is protected by authentication and does not expose Gemini API credentials.
 
 ---
 
-# 📱 Remote Dashboard
+## Reliability & Recovery
 
-JARVIS includes a remote dashboard for supported remote-control workflows.
+JARVIS includes runtime monitoring, diagnostics and controlled recovery for supported situations.
 
-When the dashboard is available, JARVIS displays the required local network information.
+The project also uses automated regression checks and real Windows desktop testing across areas such as:
 
-A compatible device on the same network can use the dashboard for supported remote interactions.
-
-Remote access is protected by authentication and does not expose your Gemini API keys.
-
----
-
-# ⚙️ Automatic Recovery
-
-JARVIS includes runtime monitoring and controlled recovery.
-
-It can detect certain problems involving:
-
-* Network connections
-* Runtime failures
-* Resource issues
-* Tool failures
-
-For supported situations, JARVIS can diagnose the problem and attempt recovery automatically.
-
-The goal is to reduce the need for manually restarting or repairing the assistant.
-
----
-
-# 🧪 Reliability
-
-JARVIS is developed with both offline regression testing and real desktop testing.
-
-The project tests important areas such as:
-
-* Action discovery
-* Core imports
-* Desktop control
+* Desktop interaction
 * Windows UI Automation
-* Action verification
+* Action discovery
+* Result verification
 * Runtime recovery
 * Reconnection
 * Configuration
-* Security-sensitive execution
-* Dashboard authentication
 * Credential handling
-* Self-patch validation
-* Code integrity
-
-Real Windows applications are also used during testing to verify that JARVIS can actually interact with a live desktop environment.
+* Dashboard authentication
+* Self-modification safeguards
 
 ---
 
-# 🛠️ For Developers
-
-Normal users should not need to modify the project.
-
-The project is internally organized into components responsible for:
-
-* AI communication
-* Desktop interaction
-* Windows UI automation
-* Actions
-* Runtime events
-* Diagnostics
-* Recovery
-* Dashboard
-* Configuration
-* Safety and validation
-
-Developers can extend JARVIS when needed, while the normal user experience remains focused on simply telling JARVIS what to do.
-
----
-
-# 📁 Project Structure
-
-A simplified view:
+## Project Structure
 
 ```text
 JARVIS-VORNEX/
 │
-├── main.py
-├── ui.py
-├── requirements.txt
-├── README.md
+├── actions/       Application and task actions
+├── core/          Runtime, desktop control and system logic
+├── dashboard/     Remote dashboard
+├── memory/        Memory and persistent application data
+├── config/        Local configuration and application assets
+├── tools/         Development and diagnostic utilities
 │
-├── core/
-│   ├── desktop_agent.py
-│   ├── window_agent.py
-│   ├── gemini.py
-│   ├── live.py
-│   ├── screen_eye.py
-│   ├── event_bus.py
-│   ├── diagnostic_controller.py
-│   ├── decision_controller.py
-│   ├── controlled_executor.py
-│   └── ...
-│
-├── actions/
-│   ├── desktop_agent.py
-│   ├── ui_click.py
-│   ├── browser_control.py
-│   ├── file_controller.py
-│   ├── web_search.py
-│   ├── send_message.py
-│   └── ...
-│
-├── dashboard/
-│
-└── config/
-    └── api_keys.json
+├── main.py        Application entry point
+├── ui.py          Main user interface
+├── setup.py       Installation / setup support
+└── requirements.txt
 ```
+
+Local runtime state, credentials and machine-specific files are intentionally excluded from the repository.
 
 ---
 
-# 🔒 Privacy & Credentials
+## Privacy & Credentials
 
-Your Gemini API keys should never be committed to Git.
+API keys and personal runtime data are stored locally.
 
-JARVIS stores local API configuration separately from the source code.
+Never commit credentials or private configuration to Git.
 
-The local configuration file:
+The repository ignores local files such as:
 
 ```text
 config/api_keys.json
+config/certs/
+memory/long_term.json
+.jarvis/
 ```
 
-is intentionally excluded from Git.
-
-Never publish your API keys in:
-
-* Git repositories
-* Issues
-* Pull requests
-* Screenshots
-* Videos
-* README files
+See [LICENSE](LICENSE) and [NOTICE](NOTICE) for project information.
 
 ---
 
-# 🆘 If Something Goes Wrong
+## VORNEX
 
-For normal use, the first step is simply to restart JARVIS:
+**VORNEX** is the maker and developer of JARVIS.
 
-```bash
-python main.py
-```
+JARVIS is the desktop assistant.
 
-If the setup screen appears again, follow the setup instructions.
+### JARVIS
 
-Normal users should generally not need to manually edit configuration files.
+**See. Understand. Act. Verify.**
 
----
-
-# 🌐 Language
-
-This README is written in **English first** for international users.
-
-A complete Persian guide is included below.
+</div>
 
 ---
 
-# 🇮🇷 راهنمای فارسی
+<a id="فارسی"></a>
 
-## JARVIS چیست؟
+<div dir="rtl">
 
-**JARVIS دستیار هوش مصنوعی دسکتاپ ساخته‌شده توسط VORNEX است.**
+# فارسی
 
-JARVIS برای این طراحی شده که مثل یک دستیار واقعی با کامپیوتر شما کار کند.
+## JARVIS
 
-یعنی فقط جواب سؤال نمی‌دهد؛ می‌تواند محیط دسکتاپ را بررسی کند، با برنامه‌ها کار کند، کارهای چندمرحله‌ای انجام دهد و نتیجه کارهای مهم را بررسی کند.
+JARVIS دستیار دسکتاپ ساخته‌شده توسط **VORNEX** است.
 
-ایده اصلی ساده است:
+JARVIS برای کار مستقیم با کامپیوتر طراحی شده؛ از باز کردن برنامه‌ها و کار با رابط‌ها گرفته تا مدیریت فایل‌ها، جستجو در وب، انجام کارهای چندمرحله‌ای و بررسی نتیجه عملیات مهم.
 
-**شما کاری را که می‌خواهید می‌گویید؛ JARVIS مراحل انجام آن را مدیریت می‌کند.**
+ایده ساده است:
 
----
-
-## ✨ JARVIS چه کارهایی می‌تواند انجام دهد؟
-
-JARVIS می‌تواند:
-
-* 👁️ محیط دسکتاپ را بررسی کند
-* 🖱️ با برنامه‌ها کار کند
-* ⌨️ تایپ و کنترل کیبورد انجام دهد
-* 🪟 با برنامه‌های Windows کار کند
-* 📂 فایل‌ها و پوشه‌ها را مدیریت کند
-* 🌐 در وب جستجو کند
-* 💬 از سرویس‌های پیام‌رسان پشتیبانی‌شده استفاده کند
-* ▶️ کارهای مربوط به رسانه را انجام دهد
-* 🛠️ در کارهای برنامه‌نویسی کمک کند
-* 🌦️ اطلاعات آب‌وهوا بگیرد
-* ✈️ پروازها را جستجو کند
-* 🎮 بعضی کارهای مربوط به بازی و آپدیت را انجام دهد
-* 🖥️ وضعیت سیستم را بررسی کند
-* 🔄 در بعضی خطاها recovery انجام دهد
-* 🧠 از context مفید در کارها استفاده کند
-* 🔐 قبل از بعضی عملیات حساس تأیید بگیرد
-* ✅ نتیجه بعضی کارها را بررسی کند
+> **کاری که می‌خواهید را بگویید؛ JARVIS انجام کار با کامپیوتر را مدیریت می‌کند.**
 
 ---
 
-# 🚀 نصب و شروع کار
+## قابلیت‌ها
 
-## پیش‌نیازها
+| حوزه     | قابلیت‌ها                                          |
+| -------- | -------------------------------------------------- |
+| دسکتاپ   | کنترل برنامه‌ها، پنجره‌ها، کیبورد و ماوس           |
+| فایل‌ها  | پیدا کردن و کار با فایل‌ها و پوشه‌ها               |
+| وب       | جستجو و انجام کارهای پشتیبانی‌شده در وب            |
+| ارتباطات | انجام بعضی فرایندهای پیام‌رسانی                    |
+| رسانه    | کار با سرویس‌های رسانه‌ای پشتیبانی‌شده             |
+| سیستم    | بررسی وضعیت سیستم و recovery در شرایط پشتیبانی‌شده |
+| توسعه    | کمک در کارهای برنامه‌نویسی                         |
+| حافظه    | نگهداری context و اطلاعات مفید                     |
+| Remote   | داشبورد کنترل از راه دور احراز هویت‌شده            |
+| امنیت    | تأیید عملیات حساس و بررسی نتیجه کار                |
 
-نیاز دارید:
+JARVIS بر پایه **کنترل عمومی دسکتاپ** طراحی شده است.
+
+برای کارهای معمول کامپیوتری لازم نیست برای هر برنامه یک اسکریپت جداگانه نوشته شود. اگر برنامه کنترل‌های استاندارد دسکتاپ را در اختیار بگذارد، JARVIS می‌تواند از سیستم عمومی تعامل با دسکتاپ استفاده کند.
+
+---
+
+## روش کار
+
+چرخه اصلی JARVIS ساده است:
+
+**مشاهده → درک → اجرا → بررسی**
+
+JARVIS می‌تواند محیط فعلی را بررسی کند، تشخیص دهد چه کاری لازم است، آن را انجام دهد و نتیجه را بررسی کند.
+
+اگر موفقیت قابل تأیید نباشد، سیستم نباید صرفاً فرض کند که کار انجام شده است.
+
+---
+
+## شروع سریع
+
+### پیش‌نیازها
 
 * Windows 10 یا Windows 11
 * Python 3.11 یا جدیدتر
-* یک Gemini API Key
+* Gemini API Key
 * میکروفون و خروجی صدا
 
----
-
-## ۱. دریافت JARVIS
+### نصب
 
 ```bash
-git clone https://github.com/VORNEX/JARVIS-VORNEX.git
+git clone https://github.com/VORNEX-01/JARVIS-VORNEX.git
 cd JARVIS-VORNEX
-```
-
----
-
-## ۲. نصب وابستگی‌ها
-
-```bash
 pip install -r requirements.txt
-```
-
----
-
-## ۳. اجرای JARVIS
-
-```bash
 python main.py
 ```
 
-در اولین اجرا، صفحه Setup باز می‌شود.
+در اولین اجرا، صفحه Setup تنظیمات اولیه را نمایش می‌دهد.
 
-در Setup تنظیمات اولیه را انجام می‌دهید و بعد از آن معمولاً دیگر نیازی به انجام دوباره این مراحل نیست.
-
----
-
-# 🔑 کلیدهای Gemini
-
-JARVIS برای بخش هوش مصنوعی خود از Gemini استفاده می‌کند.
-
-امکان وارد کردن حداکثر **۳ کلید Gemini** وجود دارد.
-
-اگر کلیدها قبلاً ذخیره شده باشند، JARVIS آنها را خودش پیدا می‌کند و در Setup به صورت مخفی و نقطه‌نقطه نمایش می‌دهد.
-
-بنابراین لازم نیست هر بار کلیدها را دوباره وارد کنید.
-
-در Setup می‌توانید:
-
-* کلید را عوض کنید
-* کلید جدید اضافه کنید
-* کلید را پاک کنید
-* کلیدهای قبلی را نگه دارید
-
-کلیدها روی سیستم شما نگهداری می‌شوند و وارد Git نمی‌شوند.
+اگر کلیدهای Gemini قبلاً ذخیره شده باشند، به صورت خودکار پیدا می‌شوند و در Setup به شکل مخفی نمایش داده می‌شوند.
 
 ---
 
-# 🖥️ انتخاب سیستم‌عامل
+## Setup
 
-در Setup سیستم‌عامل خود را انتخاب کنید.
+در صفحه Setup تنظیمات اصلی انجام می‌شود:
 
-تجربه اصلی فعلی JARVIS برای Windows طراحی شده است.
+* کلیدهای Gemini
+* انتخاب سیستم‌عامل
 
-بعد از انتخاب، این تنظیم ذخیره می‌شود و لازم نیست هر بار دوباره انتخاب شود.
+امکان استفاده از حداکثر سه کلید Gemini وجود دارد.
 
----
+کلیدهای قبلی لازم نیست دوباره وارد شوند و می‌توان آنها را جایگزین، اضافه یا حذف کرد.
 
-# 🎙️ استفاده از JARVIS
-
-برای استفاده از JARVIS لازم نیست بدانید داخل سیستم چه ابزارهایی وجود دارد.
-
-لازم نیست دستورهای فنی بنویسید.
-
-لازم نیست برای هر برنامه اسکریپت بسازید.
-
-فقط کاری را که می‌خواهید بگویید.
-
-مثلاً:
-
-> Notepad رو باز کن و بنویس VORNEX JARVIS is online.
-
-یا:
-
-> Chrome رو باز کن و آب‌وهوای امروز رو پیدا کن.
-
-یا:
-
-> فایلی که دیروز دانلود کردم رو پیدا کن.
-
-یا:
-
-> YouTube رو باز کن.
-
-یا:
-
-> این پیام رو داخل Telegram بنویس.
-
-یا:
-
-> Settings رو باز کن و Bluetooth رو روشن کن.
-
-JARVIS خودش تصمیم می‌گیرد برای انجام کار چه مراحلی لازم است.
+اطلاعات حساس به صورت محلی نگهداری می‌شوند و وارد Git نمی‌شوند.
 
 ---
 
-# 🧠 کنترل عمومی کامپیوتر
+## کنترل دسکتاپ
 
-یکی از اهداف اصلی JARVIS این است که برای هر برنامه به یک اسکریپت جداگانه نیاز نداشته باشد.
+JARVIS برای هر برنامه به یک integration جداگانه وابسته نیست.
 
-JARVIS می‌تواند:
+سیستم کنترل دسکتاپ می‌تواند رابط برنامه را بررسی کند، کنترل‌های قابل استفاده را پیدا کند، عملیات لازم را انجام دهد و نتیجه را بررسی کند.
 
-1. برنامه فعلی را بررسی کند
-2. کنترل‌های قابل استفاده را پیدا کند
-3. تصمیم بگیرد چه کاری باید انجام شود
-4. آن کار را انجام دهد
-5. نتیجه را بررسی کند
-6. در صورت نیاز مرحله بعدی را انجام دهد
-7. اگر موفقیت قابل تأیید نباشد، وانمود نکند که کار انجام شده است
+این سیستم می‌تواند برای برنامه‌هایی مانند:
 
-به همین دلیل سیستم کنترل دسکتاپ می‌تواند برای برنامه‌های مختلف استفاده شود.
+* Notepad
+* File Explorer
+* Windows Settings
+* مرورگرها
+* برنامه‌های پیام‌رسان
+* سایر برنامه‌های استاندارد Windows
 
----
+استفاده شود.
 
-# 🔐 امنیت
-
-JARVIS برای عملیات حساس از مکانیزم‌های امنیتی مختلف استفاده می‌کند.
-
-در بعضی عملیات حساس یا خطرناک، قبل از اجرا از کاربر تأیید گرفته می‌شود.
-
-همچنین بعضی عملیات بعد از اجرا بررسی می‌شوند تا سیستم صرفاً به خاطر ارسال یک دستور، آن را موفق فرض نکند.
+در مواردی که یک integration اختصاصی قابلیت بیشتری ارائه دهد، می‌توان از آن نیز استفاده کرد.
 
 ---
 
-# 📱 کنترل از راه دور
+## Remote Dashboard
 
-JARVIS دارای Dashboard برای بعضی قابلیت‌های کنترل از راه دور است.
+JARVIS دارای Dashboard احراز هویت‌شده برای بعضی قابلیت‌های Remote است.
 
-در صورت فعال بودن Dashboard، اطلاعات لازم برای اتصال در خود برنامه نمایش داده می‌شود.
+در صورت فعال بودن، اطلاعات لازم برای اتصال از یک دستگاه سازگار روی شبکه محلی در اختیار کاربر قرار می‌گیرد.
 
-دسترسی Remote نیز دارای احراز هویت است.
-
----
-
-# 🔄 بازیابی خودکار
-
-JARVIS دارای سیستم monitoring و recovery است.
-
-در بعضی مشکلات مربوط به:
-
-* اتصال
-* Runtime
-* منابع سیستم
-* ابزارها
-
-سیستم می‌تواند مشکل را تشخیص دهد و در صورت امکان recovery انجام دهد.
-
-هدف این است که برای مشکلات معمول، کاربر مجبور نباشد دائماً برنامه را دستی restart یا تعمیر کند.
+اطلاعات Gemini از طریق Remote Dashboard در اختیار دستگاه دیگر قرار نمی‌گیرد.
 
 ---
 
-# 🛠️ آیا برای استفاده از JARVIS نیاز به کار فنی است؟
+## پایداری و Recovery
 
-**خیر.**
+JARVIS دارای monitoring، تشخیص خطا و recovery کنترل‌شده برای شرایط پشتیبانی‌شده است.
 
-برای استفاده معمول فقط کافی است:
-
-1. Python و وابستگی‌ها را نصب کنید.
-2. JARVIS را اجرا کنید.
-3. در Setup کلید Gemini و سیستم‌عامل را تنظیم کنید.
-4. بعد با JARVIS به زبان طبیعی کار کنید.
-
-کارهای فنی بیشتر مربوط به توسعه خود پروژه است، نه استفاده روزمره.
+پروژه همچنین با تست‌های regression و تست واقعی روی محیط Windows بررسی می‌شود.
 
 ---
 
-# 💡 فلسفه JARVIS
+## ساختار پروژه
 
-هدف JARVIS این نیست که کاربر مجبور باشد بداند:
+```text
+JARVIS-VORNEX/
+│
+├── actions/       عملیات و قابلیت‌ها
+├── core/          هسته، کنترل دسکتاپ و منطق سیستم
+├── dashboard/     داشبورد Remote
+├── memory/        حافظه و داده‌های برنامه
+├── config/        تنظیمات محلی و assetها
+├── tools/         ابزارهای توسعه و بررسی
+│
+├── main.py        نقطه شروع برنامه
+├── ui.py          رابط اصلی
+├── setup.py       پشتیبانی Setup
+└── requirements.txt
+```
 
-* کدام ابزار را باید انتخاب کند
-* کدام دستور را باید اجرا کند
-* برای کدام برنامه باید اسکریپت بنویسد
-* هر کار چند مرحله دارد
-
-هدف این است که کاربر **نتیجه موردنظرش را بگوید**.
-
-مثلاً:
-
-> «Notepad رو باز کن و این متن رو داخلش بنویس.»
-
-یا:
-
-> «Chrome رو باز کن و آخرین اطلاعات این موضوع رو پیدا کن.»
-
-و JARVIS خودش مراحل لازم را مدیریت کند.
+اطلاعات شخصی، credentialها و داده‌های runtime به صورت محلی نگهداری می‌شوند و جزو repository نیستند.
 
 ---
 
-# ⭐ VORNEX × JARVIS
+## حریم خصوصی و اطلاعات حساس
+
+کلیدهای API و اطلاعات شخصی برنامه روی سیستم محلی نگهداری می‌شوند.
+
+هرگز اطلاعات حساس را وارد Git نکنید.
+
+نمونه فایل‌های محلی:
+
+```text
+config/api_keys.json
+config/certs/
+memory/long_term.json
+.jarvis/
+```
+
+برای اطلاعات پروژه به [LICENSE](LICENSE) و [NOTICE](NOTICE) مراجعه کنید.
+
+---
+
+## VORNEX
 
 **VORNEX** سازنده و توسعه‌دهنده JARVIS است.
 
-**JARVIS** دستیار هوش مصنوعی دسکتاپ VORNEX است.
+**JARVIS** دستیار دسکتاپ VORNEX است.
 
-> **JARVIS — See. Understand. Act. Verify.**
+### JARVIS
 
-### Built by VORNEX.
+**See. Understand. Act. Verify.**
+
+</div>
+
+---
+
+<div align="center">
+
+**Built by VORNEX**
+
+</div>
