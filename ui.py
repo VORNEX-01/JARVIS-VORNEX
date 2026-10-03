@@ -1400,7 +1400,27 @@ class SetupOverlay(QWidget):
         detected = {"darwin": "mac", "windows": "windows"}.get(
             _OS.lower(), "linux"
         )
-        self._sel_os = detected
+
+        # Reuse keys already configured on disk.  The inputs are Password-mode,
+        # so existing keys are shown as bullets rather than exposed.  The user
+        # can replace any slot or clear it before initialising.
+        _saved_cfg = {}
+        try:
+            if API_FILE.exists():
+                _saved_cfg = json.loads(API_FILE.read_text(encoding="utf-8")) or {}
+        except Exception:
+            _saved_cfg = {}
+
+        _saved_keys = _saved_cfg.get("gemini_api_keys") or []
+        if isinstance(_saved_keys, str):
+            _saved_keys = [_saved_keys]
+        if not _saved_keys and _saved_cfg.get("gemini_api_key"):
+            _saved_keys = [_saved_cfg.get("gemini_api_key")]
+        _saved_keys = [str(k).strip() for k in _saved_keys[:3] if str(k).strip()]
+
+        _saved_os = str(_saved_cfg.get("os_system") or "").strip().lower()
+        self._saved_keys_loaded = len(_saved_keys)
+        self._sel_os = _saved_os if _saved_os in {"windows", "mac", "linux"} else detected
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(30, 22, 30, 22)
@@ -1467,6 +1487,19 @@ class SetupOverlay(QWidget):
         ]
         self._key_input = self._key_inputs[0]      # back-compat alias
 
+        # Restore previously configured keys into the password fields.  Block
+        # textChanged while constructing the form because _init_btn does not
+        # exist until later in __init__. The fields remain Password-mode, so
+        # existing credentials are never rendered in clear text.
+        for _field in self._key_inputs:
+            _field.blockSignals(True)
+        try:
+            for _i, _key in enumerate(_saved_keys):
+                self._key_inputs[_i].setText(_key)
+        finally:
+            for _field in self._key_inputs:
+                _field.blockSignals(False)
+
         self._key_msg = _lbl(
             "Key 1 is required · keys 2 and 3 are optional spares.", 7,
             color=C.PRI_DIM, align=Qt.AlignmentFlag.AlignLeft)
@@ -1521,9 +1554,13 @@ class SetupOverlay(QWidget):
         self._init_btn.clicked.connect(self._submit)
         layout.addWidget(self._init_btn)
 
-        # Put the fields straight into the state they should start in: only
-        # key 1 open, the button dark until it has one.
+        # Existing saved keys are already valid credentials, so do not hide
+        # later saved slots behind the sequential-entry ladder.  The user can
+        # still clear or replace any slot normally.
         self._keys_changed()
+        if self._saved_keys_loaded:
+            for _i, _field in enumerate(self._key_inputs):
+                _field.setEnabled(_i < self._saved_keys_loaded + 1)
 
         # Fit the panel to its own content, and override any height pinned
         # earlier in this __init__. A fixed 390 px is what crushed the three
@@ -4874,10 +4911,18 @@ class MainWindow(QMainWindow):
         self.hud.speaking = (state == "SPEAKING")
 
     def _check_config(self) -> bool:
-        if not API_FILE.exists(): return False
+        if not API_FILE.exists():
+            return False
         try:
-            d = json.loads(API_FILE.read_text(encoding="utf-8"))
-            return bool(d.get("gemini_api_key")) and bool(d.get("os_system"))
+            d = json.loads(API_FILE.read_text(encoding="utf-8")) or {}
+            keys = d.get("gemini_api_keys") or []
+            if isinstance(keys, str):
+                keys = [keys]
+            has_gemini = any(str(k).strip() for k in keys) or bool(
+                str(d.get("gemini_api_key") or "").strip()
+            )
+            os_system = str(d.get("os_system") or "").strip().lower()
+            return has_gemini and os_system in {"windows", "mac", "linux"}
         except Exception:
             return False
 
